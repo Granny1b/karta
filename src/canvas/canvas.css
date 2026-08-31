@@ -1,0 +1,460 @@
+/*
+ * React Flow overrides and the canvas primitives Tailwind cannot express
+ * (handle sizing, edge label chips, the fading grid). Everything reads from
+ * the tokens in section 8.1 — no colour is written literally here.
+ */
+
+.karta-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--surface-canvas);
+  outline: none;
+}
+
+.karta-canvas .react-flow {
+  /* Neutralise React Flow's own node theming — every surface here is ours. */
+  --xy-background-color: var(--surface-canvas);
+  --xy-selection-background-color: color-mix(in srgb, var(--focus) 10%, transparent);
+  --xy-selection-border: 1px solid var(--focus);
+  --xy-node-border: none;
+  --xy-node-border-radius: 0;
+  --xy-node-background-color: transparent;
+  --xy-node-group-background-color: transparent;
+  --xy-node-boxshadow-hover: none;
+  --xy-node-boxshadow-selected: none;
+  --xy-node-color: var(--ink);
+  --xy-handle-background-color: var(--surface-raised);
+  --xy-handle-border-color: var(--line-strong);
+  --xy-edge-stroke: var(--edge-relates);
+  height: 100%;
+}
+
+/* Frames are a drawn surface, not a React Flow "group" node. */
+.karta-canvas .react-flow__node-group,
+.karta-canvas .react-flow__node-group.selectable:hover,
+.karta-canvas .react-flow__node-group.selectable.selected,
+.karta-canvas .react-flow__node-group.selectable:focus,
+.karta-canvas .react-flow__node-group.selectable:focus-visible {
+  width: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font-size: inherit;
+  text-align: left;
+  pointer-events: none;
+}
+
+/* Edge labels and the arrow toolbar float above every node. */
+.karta-canvas .react-flow__edgelabel-renderer {
+  z-index: 2000;
+}
+
+.karta-grid {
+  transition: opacity 120ms linear;
+}
+
+/* --- nodes ------------------------------------------------------------- */
+
+.karta-node {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  /* No shadow at rest — one appears while dragging and nowhere else (8.3). */
+  box-shadow: none;
+}
+
+.karta-node.is-selected {
+  border-color: var(--focus);
+  outline: 1px solid var(--focus);
+}
+
+.karta-node.is-dragging {
+  box-shadow: 0 10px 24px rgb(0 0 0 / 18%);
+}
+
+.karta-node.is-locked {
+  cursor: default;
+}
+
+.karta-block {
+  border-color: transparent;
+}
+
+.karta-colorbar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+}
+
+.karta-card-title {
+  font-family: 'IBM Plex Sans Condensed', 'IBM Plex Sans', system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.2;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.karta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-muted);
+}
+
+.karta-chip-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 999px;
+}
+
+.karta-due {
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1.4;
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+}
+
+.karta-due-overdue {
+  background: color-mix(in srgb, var(--temper-copper) 18%, var(--surface-raised));
+  color: var(--temper-copper);
+}
+
+.karta-due-today {
+  background: color-mix(in srgb, var(--temper-straw) 22%, var(--surface-raised));
+  color: var(--ink);
+}
+
+/* --- frames ------------------------------------------------------------- */
+
+.karta-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  /* Only the label takes the pointer, so a drag inside a frame is a marquee. */
+  pointer-events: none;
+}
+
+.karta-frame.is-selected {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.karta-group-grip {
+  position: absolute;
+  top: -1px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  padding: 1px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0 0 5px 5px;
+  background: var(--surface-raised);
+  font-family: 'IBM Plex Sans Condensed', 'IBM Plex Sans', system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: all;
+  cursor: grab;
+}
+
+.karta-group-grip.is-locked {
+  cursor: default;
+}
+
+.karta-group-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
+}
+
+/* --- handles ------------------------------------------------------------ */
+
+.karta-canvas .react-flow__handle {
+  width: 9px;
+  height: 9px;
+  min-width: 0;
+  min-height: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  opacity: 0;
+  transition: opacity 100ms linear;
+}
+
+.karta-canvas .react-flow__handle:hover {
+  border-color: var(--focus);
+  background: var(--focus);
+}
+
+/* Handles stay mounted at every zoom — edge anchors are measured from them —
+   but they are only offered where they can actually be hit. */
+.karta-lod-full:hover .react-flow__handle,
+.karta-lod-compact:hover .react-flow__handle,
+.react-flow__node.selected .karta-lod-full .react-flow__handle,
+.react-flow__node.selected .karta-lod-compact .react-flow__handle {
+  opacity: 1;
+}
+
+.karta-canvas .karta-lod-title .react-flow__handle,
+.karta-canvas .karta-lod-block .react-flow__handle {
+  pointer-events: none;
+}
+
+.karta-canvas .react-flow__handle-top {
+  top: -5px;
+}
+
+.karta-canvas .react-flow__handle-bottom {
+  bottom: -5px;
+}
+
+.karta-canvas .react-flow__handle-left {
+  left: -5px;
+}
+
+.karta-canvas .react-flow__handle-right {
+  right: -5px;
+}
+
+/* --- resize handles ----------------------------------------------------- */
+
+/* A frame takes no pointer events, so its handles have to ask for them back. */
+.karta-canvas .react-flow__resize-control {
+  pointer-events: all;
+}
+
+.karta-canvas .karta-resize-handle {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--focus);
+  border-radius: 2px;
+  background: var(--surface-raised);
+}
+
+.karta-canvas .karta-resize-line {
+  border-color: transparent;
+}
+
+/* --- edges -------------------------------------------------------------- */
+
+.karta-edge-halo {
+  stroke: var(--focus);
+  stroke-opacity: 0.22;
+  stroke-linecap: round;
+}
+
+.karta-edge-label {
+  position: absolute;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: nowrap;
+  pointer-events: all;
+}
+
+.karta-edge-toolbar-anchor {
+  position: absolute;
+  pointer-events: all;
+}
+
+.karta-edge-toolbar,
+.karta-connect-menu {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 14%);
+}
+
+.karta-edge-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 252px;
+  padding: 6px;
+}
+
+/* --- small controls ----------------------------------------------------- */
+
+.karta-tool-btn {
+  flex: 1 1 auto;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.karta-tool-btn:hover {
+  color: var(--ink);
+}
+
+.karta-tool-btn.is-on {
+  border-color: var(--focus);
+  background: var(--surface-raised);
+  color: var(--ink);
+}
+
+.karta-tool-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  padding: 3px 0;
+}
+
+.karta-danger:hover {
+  color: var(--temper-copper);
+}
+
+.karta-swatch {
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.karta-swatch.is-on {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.karta-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.karta-input:focus {
+  outline: 1px solid var(--focus);
+  outline-offset: -1px;
+}
+
+/* --- overlays ----------------------------------------------------------- */
+
+.karta-connect-menu {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  min-width: 172px;
+  flex-direction: column;
+  padding: 4px;
+}
+
+.karta-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.karta-menu-item:hover,
+.karta-menu-item:focus-visible {
+  background: var(--surface-sunken);
+  outline: none;
+}
+
+.karta-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 14px;
+  color: var(--ink-muted);
+  pointer-events: none;
+}
+
+.karta-uploading {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+/* --- react flow chrome -------------------------------------------------- */
+
+.karta-canvas .react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+
+.karta-canvas .react-flow__controls-button {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-raised);
+  fill: var(--ink-muted);
+}
+
+.karta-canvas .react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+.karta-canvas .react-flow__controls-button:hover {
+  background: var(--surface-sunken);
+  fill: var(--ink);
+}
+
+.karta-canvas .react-flow__attribution {
+  background: transparent;
+  font-size: 10px;
+}
+
+.karta-canvas .react-flow__attribution a {
+  color: var(--ink-muted);
+}

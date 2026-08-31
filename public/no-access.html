@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>No access — Karta</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --surface-canvas: #edf0f3;
+        --surface-raised: #ffffff;
+        --line: #cbd2da;
+        --ink: #17202a;
+        --ink-muted: #5b6874;
+        --temper-copper: #a94e3b;
+        --focus: #2f5c8c;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --surface-canvas: #14181d;
+          --surface-raised: #1d232a;
+          --line: #2c343d;
+          --ink: #e6eaee;
+          --ink-muted: #98a3ae;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--surface-canvas);
+        color: var(--ink);
+        font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-size: 15px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .card {
+        position: relative;
+        width: 100%;
+        max-width: 420px;
+        padding: 28px 28px 24px 32px;
+        background: var(--surface-raised);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+
+      /* The 4 px temper bar down the left edge — same language as a card on the canvas. */
+      .card::before {
+        content: '';
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 4px;
+        background: var(--temper-copper);
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-family: 'IBM Plex Sans Condensed', 'IBM Plex Sans', system-ui, sans-serif;
+        font-weight: 600;
+        font-size: 22px;
+        line-height: 1.25;
+      }
+
+      p {
+        margin: 0;
+        max-width: 46ch;
+        color: var(--ink-muted);
+      }
+
+      .actions {
+        margin-top: 20px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      a {
+        color: var(--focus);
+        text-decoration: none;
+        font-weight: 500;
+        border-bottom: 1px solid transparent;
+      }
+
+      a:hover {
+        border-bottom-color: currentColor;
+      }
+
+      a:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 3px;
+        border-radius: 2px;
+      }
+
+      .brand {
+        color: var(--ink-muted);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>No access</h1>
+      <p>
+        This board is invitation-only. Your account is signed in but has not been given the
+        member role, so ask the board owner for an invitation.
+      </p>
+      <div class="actions">
+        <a href="/.auth/logout">Sign out</a>
+        <span class="brand">Karta</span>
+      </div>
+    </main>
+  </body>
+</html>

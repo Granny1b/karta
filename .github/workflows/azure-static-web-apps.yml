@@ -1,0 +1,88 @@
+name: Azure Static Web Apps
+
+# The only deployment path (spec 11). Nothing is changed in the portal.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+
+concurrency:
+  group: swa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_and_deploy:
+    name: Build and deploy
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+          submodules: false
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            api/package-lock.json
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Install api dependencies
+        run: npm ci --prefix api
+
+      # Typecheck both halves before anything is uploaded, so a broken build never ships.
+      # `npm run build` is not used for the typecheck pass: its `tsc -b` also builds
+      # tsconfig.node.json (vite.config.ts), which needs @types/node that the app does not
+      # depend on. The app project is checked directly instead.
+      - name: Typecheck app
+        run: npx tsc -p tsconfig.app.json --noEmit
+
+      - name: Typecheck api
+        run: npm run typecheck --prefix api
+
+      - name: Build app
+        run: npx vite build
+
+      # The deploy action reads the routing and role config from the uploaded output folder,
+      # so the root config is copied in rather than relied on being picked up from app_location.
+      - name: Include Static Web Apps config in the output
+        run: cp staticwebapp.config.json dist/staticwebapp.config.json
+
+      - name: Deploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: '/'
+          api_location: 'api'
+          output_location: 'dist'
+          # dist/ was produced by the step above; Oryx still builds the api.
+          skip_app_build: true
+
+  close_pull_request:
+    name: Close pull request environment
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Tear down the preview environment
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: close
