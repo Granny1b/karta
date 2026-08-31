@@ -56,10 +56,22 @@ jobs:
       - name: Build app
         run: npx vite build
 
-      # The deploy action reads the routing and role config from the uploaded output folder,
-      # so the root config is copied in rather than relied on being picked up from app_location.
+      # `app_location` below is the built output, so the routing and role config has to travel
+      # inside it — the action never looks back at the repo root for staticwebapp.config.json.
       - name: Include Static Web Apps config in the output
         run: cp staticwebapp.config.json dist/staticwebapp.config.json
+
+      # Guard the upload limit. `npm ci` above puts ~15k files in node_modules, and the content
+      # server rejects an upload of more than 15,000 static files outright ("The number of static
+      # files was too large"), so a stray file count is a deploy failure, not a warning.
+      - name: Check the static payload
+        run: |
+          count=$(find dist -type f | wc -l)
+          echo "dist contains $count files"
+          if [ "$count" -gt 14000 ]; then
+            echo "::error::dist has $count files; the Static Web Apps upload limit is 15000."
+            exit 1
+          fi
 
       - name: Deploy
         uses: Azure/static-web-apps-deploy@v1
@@ -67,10 +79,14 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
-          app_location: '/'
+          # Point straight at the built output. With skip_app_build the action treats
+          # app_location as the content root and ignores output_location, so '/' would upload the
+          # whole workspace — including the ~15k files npm ci puts in node_modules, which trips
+          # the content server's 15,000-file limit. api_location stays relative to the repo root.
+          app_location: 'dist'
           api_location: 'api'
-          output_location: 'dist'
-          # dist/ was produced by the step above; Oryx still builds the api.
+          output_location: ''
+          # dist/ was produced by the steps above; Oryx still builds the api.
           skip_app_build: true
 
   close_pull_request:
