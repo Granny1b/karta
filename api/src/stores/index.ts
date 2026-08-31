@@ -7,9 +7,9 @@
  */
 
 import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-blob';
-import { BlobBoardStore } from './blobBoardStore';
-import { BlobMediaStore } from './blobMediaStore';
-import type { BoardStore, MediaStore } from './types';
+import { BlobBoardStore } from './blobBoardStore.js';
+import { BlobMediaStore } from './blobMediaStore.js';
+import type { BoardStore, MediaStore } from './types.js';
 
 interface StorageConfig {
   service: BlobServiceClient;
@@ -81,17 +81,35 @@ function requireSetting(name: string): string {
 }
 
 /**
+ * Azurite's well-known development account — what `UseDevelopmentStorage=true`
+ * is shorthand for. The Azure SDKs and the Functions host both expand it, so
+ * the shorthand is what a developer writes and what `local.settings.json`
+ * ships with; expanding it here is what makes that true of this store too.
+ */
+const AZURITE_CONNECTION_STRING =
+  'DefaultEndpointsProtocol=http;' +
+  'AccountName=devstoreaccount1;' +
+  'AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;' +
+  'BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;';
+
+const DEVELOPMENT_SHORTHAND_RE = /^usedevelopmentstorage\s*=\s*true;?$/i;
+
+/**
  * The shared key is pulled out explicitly rather than using
  * `BlobServiceClient.fromConnectionString`, because SAS minting needs the same
  * `StorageSharedKeyCredential` instance and the client does not hand it back.
  */
-function parseConnectionString(cs: string): {
+export function parseConnectionString(cs: string): {
   accountName: string;
   accountKey: string;
   accountUrl: string;
 } {
+  const trimmed = cs.trim();
+  const expanded = DEVELOPMENT_SHORTHAND_RE.test(trimmed) ? AZURITE_CONNECTION_STRING : trimmed;
+
+  // Split on the first '=' only: an account key is base64 and ends in padding.
   const parts = new Map<string, string>();
-  for (const segment of cs.split(';')) {
+  for (const segment of expanded.split(';')) {
     const at = segment.indexOf('=');
     if (at <= 0) continue;
     parts.set(segment.slice(0, at).trim().toLowerCase(), segment.slice(at + 1).trim());

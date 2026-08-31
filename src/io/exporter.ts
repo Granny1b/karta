@@ -197,12 +197,12 @@ Format:
       "status": "Bygger",               // a status NAME, matched case-insensitively
       "labels": ["bug"],                // label NAMES, created if new
       "checklist": ["First step", { "text": "Done already", "done": true }],
-      "color": "blue",                  // straw bronze copper purple blue teal slate, or #RRGGBB
+      "color": "blue",                  // straw bronze copper purple blue teal slate, #RRGGBB or #RGB
       "due": "2026-04-30",              // ISO date or YYYY-MM-DD
       "collapsed": false
     }
   ],
-  "notes": [ { "text": "A sticky note on the canvas", "color": "straw" } ],
+  "notes": [ { "key": "n1", "text": "A sticky note on the canvas", "color": "straw" } ],
   "edges": [
     { "from": "a", "to": "Other card title", "semantic": "depends", "label": "needs" }
   ]
@@ -211,6 +211,7 @@ Format:
 Rules:
 - Only "title" is required on a card. Everything else is optional.
 - "from" and "to" are card keys, or exact card titles.
+- A "key" must be unique across cards *and* notes.
 - "semantic" is one of: relates, depends, blocks, derives. Default is relates.
 - Leave positions out; Karta lays the cards out in a grid.
 - Use 5 to 15 cards unless I ask for more. Titles under 60 characters.

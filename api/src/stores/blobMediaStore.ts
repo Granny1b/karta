@@ -21,15 +21,15 @@ import {
   type StorageSharedKeyCredential,
   generateBlobSASQueryParameters,
 } from '@azure/storage-blob';
-import type { Id, MediaContentType, UploadTarget } from '@domain/board';
-import { BadRequestError } from '../domain/errors';
-import { isUlid } from '../domain/validate';
+import type { Id, MediaContentType, UploadTarget } from '../../../src/domain/board.js';
+import { BadRequestError } from '../domain/errors.js';
+import { isUlid } from '../domain/validate.js';
 import {
   type MediaStore,
   READ_SAS_TTL_MINUTES,
   SAS_CLOCK_SKEW_MINUTES,
   UPLOAD_SAS_TTL_MINUTES,
-} from './types';
+} from './types.js';
 
 /** Thumbnails are always webp — the client encodes them (spec 4.1). */
 export const THUMB_SUFFIX = '.thumb.webp';
@@ -53,6 +53,7 @@ export class BlobMediaStore implements MediaStore {
   private readonly containerName: string;
   private readonly credential: StorageSharedKeyCredential;
   private readonly accountUrl: string;
+  private readonly sasProtocol: SASProtocol;
   private containerReady: Promise<void> | null = null;
 
   constructor(options: BlobMediaStoreOptions) {
@@ -60,6 +61,12 @@ export class BlobMediaStore implements MediaStore {
     this.container = options.service.getContainerClient(options.mediaContainer);
     this.credential = options.credential;
     this.accountUrl = options.accountUrl.replace(/\/+$/, '');
+    // Every deployed account is https, so this is `Https` in production. Azurite
+    // is plain http, and a SAS that pins https against an http endpoint is
+    // refused with AuthorizationProtocolMismatch on every upload and image load.
+    this.sasProtocol = this.accountUrl.startsWith('https:')
+      ? SASProtocol.Https
+      : SASProtocol.HttpsAndHttp;
   }
 
   async mintUploadSas(boardId: Id, mediaId: Id, contentType: string): Promise<UploadTarget> {
@@ -111,8 +118,11 @@ export class BlobMediaStore implements MediaStore {
     const sas = generateBlobSASQueryParameters(
       {
         containerName: this.containerName,
-        permissions: ContainerSASPermissions.parse('rl'),
-        protocol: SASProtocol.Https,
+        // 'r' — read only. The client only ever fetches paths it already holds
+        // in a MediaRef; adding 'l' would turn this into a container listing
+        // that enumerates every board's blobs, across every ACL.
+        permissions: ContainerSASPermissions.parse('r'),
+        protocol: this.sasProtocol,
         startsOn,
         expiresOn,
       },
@@ -164,7 +174,7 @@ export class BlobMediaStore implements MediaStore {
         containerName: this.containerName,
         blobName: relative,
         permissions,
-        protocol: SASProtocol.Https,
+        protocol: this.sasProtocol,
         startsOn,
         expiresOn,
       },

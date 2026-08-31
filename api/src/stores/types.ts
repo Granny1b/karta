@@ -14,7 +14,7 @@ import type {
   MediaContentType,
   SnapshotRef,
   UploadTarget,
-} from '@domain/board';
+} from '../../../src/domain/board.js';
 
 export type { SnapshotRef, UploadTarget };
 

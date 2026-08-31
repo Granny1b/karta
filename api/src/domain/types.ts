@@ -2,14 +2,16 @@
  * The API's view of the domain.
  *
  * Everything structural comes from the single shared contract in
- * `src/domain/board.ts` (aliased `@domain/board`) so the wire types can never
- * drift from what the frontend compiles against. Only request/response shapes
- * that exist purely at the HTTP boundary are declared here.
+ * `src/domain/board.ts` — imported by relative path, because a `paths` alias is
+ * a typecheck-only fiction that `tsc` never rewrites on emit — so the wire
+ * types can never drift from what the frontend compiles against. Only
+ * request/response shapes that exist purely at the HTTP boundary are declared
+ * here.
  */
 
-export * from '@domain/board';
+export * from '../../../src/domain/board.js';
 
-import type { BoardDoc, Id, Iso, MediaContentType, MediaRef, SnapshotRef } from '@domain/board';
+import type { BoardDoc, Id, Iso, MediaContentType, MediaRef, SnapshotRef } from '../../../src/domain/board.js';
 
 /* ------------------------------------------------------------------ *
  * Boards

@@ -18,7 +18,7 @@ import { ApiError, api } from '@/lib/api';
 import { formatBytes, nowIso } from '@/lib/format';
 import { readLocal, writeLocal } from '@/lib/storage';
 import { mergeBoards } from '@/state/merge';
-import { clearWal, readWal, writeWal } from '@/state/wal';
+import { clearWal, readWal, walHoldsUnsavedWork, writeWal } from '@/state/wal';
 import { useUiStore, type ToastKind } from '@/state/uiStore';
 
 /* ------------------------------------------------------------------ *
@@ -106,8 +106,26 @@ let viewportTimer: Timer | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 let lastSaveAt = 0;
-let saving = false;
-let saveQueued = false;
+
+/**
+ * One `PUT` at a time. A board save and a camera write share the ETag held since
+ * load, so they must never overlap: a board save waits here, a camera write gives
+ * up and re-arms its own timer — it is fire-and-forget by design (spec 6.1).
+ */
+let inFlight: Promise<void> | null = null;
+
+/**
+ * Board saves run one after another on this chain, so `await save()` means
+ * "everything mutated before the call has been written" (spec 6.1).
+ */
+let saveChain: Promise<void> = Promise.resolve();
+
+/**
+ * Bumped by every change that dirties the document. A save compares it across
+ * the round trip to tell real work from a camera move or a board-link rollup,
+ * both of which change the document object without dirtying the board.
+ */
+let mutationSeq = 0;
 
 /** Boards already warned about size, so the toast fires once per session. */
 const sizeWarned = new Set<Id>();
@@ -143,8 +161,11 @@ function clearAutosaveTimers(): void {
   maxTimer = null;
 }
 
+/**
+ * The timers are cleared by the save itself, once it knows it is going to run.
+ * Disarming them here would leave nothing armed whenever the save has to wait.
+ */
 function runAutosave(): void {
-  clearAutosaveTimers();
   void useBoardStore.getState().save();
 }
 
@@ -167,6 +188,27 @@ function scheduleViewportSave(): void {
 }
 
 /**
+ * Serialises the two writers. Board saves wait their turn; the camera does not
+ * queue, so `saveViewport` checks `inFlight` itself and re-arms its timer.
+ */
+async function holdPut<T>(body: () => Promise<T>): Promise<T> {
+  while (inFlight) await inFlight;
+
+  let release: () => void = () => {};
+  const lock = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  inFlight = lock;
+
+  try {
+    return await body();
+  } finally {
+    if (inFlight === lock) inFlight = null;
+    release();
+  }
+}
+
+/**
  * The camera is written with the ETag we happen to hold and nothing is retried:
  * last one wins, and a lost camera position is not worth a dialog (spec 6.1).
  */
@@ -178,21 +220,38 @@ async function saveViewport(): Promise<void> {
     scheduleAutosave(); // a real save is pending; it carries the viewport
     return;
   }
-  if (saving || state.walRecovery) return;
-
-  saving = true;
-  try {
-    const result = await api.putBoard(boardId, doc, state.etag, []);
-    const latest = useBoardStore.getState();
-    if (latest.boardId === boardId && !latest.dirty) {
-      useBoardStore.setState({ etag: result.etag, base: clone(latest.doc ?? doc) });
-      lastSaveAt = Date.now();
-    }
-  } catch {
-    /* exempt from conflict handling by design */
-  } finally {
-    saving = false;
+  if (state.walRecovery) return;
+  if (inFlight) {
+    // A save holds the wire and it was addressed before this camera move, so it
+    // may not carry it. Try again on the next debounce rather than dropping the
+    // position — a camera write never joins the save queue.
+    scheduleViewportSave();
+    return;
   }
+
+  await holdPut(async () => {
+    try {
+      const result = await api.putBoard(boardId, doc, state.etag, []);
+      const latest = useBoardStore.getState();
+      // A restore or an import can land mid-flight; its ETag is the live one.
+      if (latest.boardId !== boardId || latest.etag !== state.etag) return;
+
+      // `updatedAt` is stamped server-side on every PUT, so the server's echo is
+      // the only honest baseline. Keeping a client-stamped one would leave the
+      // index ahead of `base`, and the 20 s poll of spec 6.4 would read our own
+      // camera write as somebody else's change and reload over the session.
+      const nextDoc =
+        latest.doc === doc
+          ? result.doc
+          : produce(latest.doc ?? doc, (d) => {
+              d.updatedAt = result.doc.updatedAt;
+            });
+      useBoardStore.setState({ doc: nextDoc, base: clone(result.doc), etag: result.etag });
+      lastSaveAt = Date.now();
+    } catch {
+      /* exempt from conflict handling by design (spec 6.1) */
+    }
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -293,7 +352,7 @@ async function poll(boardId: Id): Promise<void> {
     stopPolling();
     return;
   }
-  if (!state.doc || state.loading || saving) return;
+  if (!state.doc || state.loading || inFlight) return;
 
   try {
     const index = await api.getIndex();
@@ -345,6 +404,7 @@ async function mergeFromServer(boardId: Id): Promise<boolean> {
     d.updatedAt = nowIso();
   });
 
+  mutationSeq += 1;
   useBoardStore.setState({
     doc: merged,
     base: clone(server.doc),
@@ -352,9 +412,107 @@ async function mergeFromServer(boardId: Id): Promise<boolean> {
     newerAvailable: false,
     dirty: true,
   });
-  void writeWal(boardId, merged);
+  void writeWal(boardId, merged, server.etag);
   for (const note of notes) toast(note, 'warn');
   return true;
+}
+
+/* ------------------------------------------------------------------ *
+ * The save pipeline (spec 6.1)
+ * ------------------------------------------------------------------ */
+
+/**
+ * One turn of the pipeline. It runs on `saveChain`, so it never overlaps another
+ * save, and it re-reads the store on entry: a save queued behind another one and
+ * left with nothing to do collapses into a no-op instead of a second write.
+ */
+async function runSave(force: boolean): Promise<void> {
+  // Now that this save is going to run, the timers that asked for it are spent.
+  clearAutosaveTimers();
+
+  const start = useBoardStore.getState();
+  const boardId = start.boardId;
+  if (!boardId || !start.doc) return;
+  if (!start.dirty && !force) return;
+
+  useBoardStore.setState({ saveState: 'saving', error: null });
+
+  try {
+    await holdPut(async () => {
+      let attempt = 0;
+      for (;;) {
+        const current = useBoardStore.getState();
+        const doc = current.doc;
+        if (!doc || current.boardId !== boardId) return;
+
+        const size = checkSize(doc);
+        if (!size.ok) {
+          useBoardStore.setState({ error: size.message, saveState: 'idle' });
+          if (hardStoppedBoard !== boardId) {
+            hardStoppedBoard = boardId;
+            toast(size.message, 'error');
+          }
+          return;
+        }
+
+        const orphans = current.pendingOrphans;
+        const sentEtag = current.etag;
+        const seqAtSend = mutationSeq;
+
+        try {
+          const result = await api.putBoard(boardId, doc, sentEtag, orphans);
+          const latest = useBoardStore.getState();
+          // A restore or an import can land while the PUT is in flight. Its ETag
+          // is the live one and the one we just earned is already two versions
+          // stale, so installing it would 412 the next save.
+          if (latest.boardId !== boardId || latest.etag !== sentEtag) {
+            useBoardStore.setState({ saveState: 'idle' });
+            return;
+          }
+
+          const untouched = latest.doc === doc; // did the document object change at all?
+          const edited = mutationSeq !== seqAtSend; // ...and was any of that user work?
+          lastSaveAt = Date.now();
+          hardStoppedBoard = null;
+          useBoardStore.setState({
+            // Keep the live document when it moved on: a camera move or a
+            // board-link rollup landed on it and the server's echo predates them.
+            doc: untouched ? result.doc : latest.doc,
+            base: clone(result.doc),
+            etag: result.etag,
+            dirty: edited,
+            saveState: edited ? 'idle' : 'saved',
+            error: null,
+            newerAvailable: false,
+            pendingOrphans: latest.pendingOrphans.filter((path) => !orphans.includes(path)),
+          });
+
+          if (edited) scheduleAutosave();
+          else void clearWal(boardId);
+          return;
+        } catch (err) {
+          if (err instanceof ApiError && err.conflict && attempt < MAX_MERGE_RETRIES) {
+            attempt += 1;
+            if (!(await mergeFromServer(boardId))) return;
+            continue;
+          }
+          throw err;
+        }
+      }
+    });
+  } catch (err) {
+    if (useBoardStore.getState().boardId !== boardId) return;
+    if (err instanceof ApiError && err.offline) {
+      // The write-ahead entry stays; the next mutation reschedules the save.
+      useBoardStore.setState({ saveState: 'offline', error: null });
+    } else if (err instanceof ApiError && err.conflict) {
+      useBoardStore.setState({ saveState: 'conflict', error: 'This board changed somewhere else.' });
+    } else {
+      const message = describe(err, 'Could not save this board');
+      useBoardStore.setState({ saveState: 'idle', error: message });
+      toast(message, 'error');
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -429,9 +587,17 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
       set({ doc, base: clone(doc), etag, loading: false, saveState: 'idle' });
 
       const wal = await readWal(id);
+      if (get().boardId !== id) return;
       if (wal) {
-        if (wal.doc.updatedAt > doc.updatedAt) set({ walRecovery: { doc: wal.doc, savedAt: wal.savedAt } });
-        else await clearWal(id);
+        // Never judged on a timestamp: this browser stamps `updatedAt` from its
+        // own clock and the server restamps it on every PUT, so the two are not
+        // comparable. The entry is dropped only once its work is provably on the
+        // server (spec 7.5.3); anything else is offered back to the user.
+        if (walHoldsUnsavedWork(wal, { doc, etag })) {
+          set({ walRecovery: { doc: wal.doc, savedAt: wal.savedAt } });
+        } else {
+          await clearWal(id);
+        }
       }
 
       if (!get().me) void get().loadMe();
@@ -448,88 +614,16 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
     }
   },
 
+  /**
+   * Takes its turn behind whatever is already saving, so `await save()` is a
+   * flush barrier: when it resolves, everything mutated before the call has been
+   * written (or has failed loudly into `saveState`). A rejected save must not
+   * poison the queue for the next caller.
+   */
   async save(force = false) {
-    const start = get();
-    const boardId = start.boardId;
-    if (!boardId || !start.doc) return;
-    if (!start.dirty && !force) return;
-    if (saving) {
-      saveQueued = true;
-      return;
-    }
-
-    clearAutosaveTimers();
-    saving = true;
-    set({ saveState: 'saving', error: null });
-
-    try {
-      let attempt = 0;
-      for (;;) {
-        const current = useBoardStore.getState();
-        const doc = current.doc;
-        if (!doc || current.boardId !== boardId) return;
-
-        const size = checkSize(doc);
-        if (!size.ok) {
-          set({ error: size.message, saveState: 'idle' });
-          if (hardStoppedBoard !== boardId) {
-            hardStoppedBoard = boardId;
-            toast(size.message, 'error');
-          }
-          return;
-        }
-
-        const orphans = current.pendingOrphans;
-        try {
-          const result = await api.putBoard(boardId, doc, current.etag, orphans);
-          const latest = useBoardStore.getState();
-          if (latest.boardId !== boardId) return;
-
-          const untouched = latest.doc === doc;
-          lastSaveAt = Date.now();
-          hardStoppedBoard = null;
-          set({
-            doc: untouched ? result.doc : latest.doc,
-            base: clone(result.doc),
-            etag: result.etag,
-            dirty: !untouched,
-            saveState: untouched ? 'saved' : 'idle',
-            error: null,
-            newerAvailable: false,
-            pendingOrphans: latest.pendingOrphans.filter((path) => !orphans.includes(path)),
-          });
-
-          if (untouched) void clearWal(boardId);
-          else scheduleAutosave();
-          return;
-        } catch (err) {
-          if (err instanceof ApiError && err.conflict && attempt < MAX_MERGE_RETRIES) {
-            attempt += 1;
-            if (!(await mergeFromServer(boardId))) return;
-            continue;
-          }
-          throw err;
-        }
-      }
-    } catch (err) {
-      if (get().boardId !== boardId) return;
-      if (err instanceof ApiError && err.offline) {
-        // The write-ahead entry stays; the next mutation reschedules the save.
-        set({ saveState: 'offline', error: null });
-      } else if (err instanceof ApiError && err.conflict) {
-        set({ saveState: 'conflict', error: 'This board changed somewhere else.' });
-      } else {
-        const message = describe(err, 'Could not save this board');
-        set({ saveState: 'idle', error: message });
-        toast(message, 'error');
-      }
-    } finally {
-      saving = false;
-      if (saveQueued) {
-        saveQueued = false;
-        if (get().dirty) scheduleAutosave();
-      }
-    }
+    const run = saveChain.then(() => runSave(force));
+    saveChain = run.catch(() => {});
+    await run;
   },
 
   mutate(label, recipe) {
@@ -562,6 +656,7 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
       }
     });
 
+    mutationSeq += 1;
     set({
       doc: stamped,
       dirty: true,
@@ -569,7 +664,7 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
       redoStack: [],
       saveState: state.saveState === 'saved' ? 'idle' : state.saveState,
     });
-    void writeWal(boardId, stamped);
+    void writeWal(boardId, stamped, state.etag);
     scheduleAutosave();
   },
 
@@ -581,13 +676,14 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
   },
 
   undo() {
-    const { undoStack, redoStack, doc, boardId } = get();
+    const { undoStack, redoStack, doc, boardId, etag } = get();
     const entry = undoStack[undoStack.length - 1];
     if (!entry || !doc || !boardId) return;
 
     const restored = produce(entry.doc, (d) => {
       d.updatedAt = nowIso();
     });
+    mutationSeq += 1;
     set({
       doc: restored,
       undoStack: undoStack.slice(0, -1),
@@ -595,18 +691,19 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
       dirty: true,
       saveState: get().saveState === 'saved' ? 'idle' : get().saveState,
     });
-    void writeWal(boardId, restored);
+    void writeWal(boardId, restored, etag);
     scheduleAutosave();
   },
 
   redo() {
-    const { undoStack, redoStack, doc, boardId } = get();
+    const { undoStack, redoStack, doc, boardId, etag } = get();
     const entry = redoStack[redoStack.length - 1];
     if (!entry || !doc || !boardId) return;
 
     const restored = produce(entry.doc, (d) => {
       d.updatedAt = nowIso();
     });
+    mutationSeq += 1;
     set({
       doc: restored,
       redoStack: redoStack.slice(0, -1),
@@ -614,7 +711,7 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
       dirty: true,
       saveState: get().saveState === 'saved' ? 'idle' : get().saveState,
     });
-    void writeWal(boardId, restored);
+    void writeWal(boardId, restored, etag);
     scheduleAutosave();
   },
 
@@ -756,6 +853,7 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
           d.updatedAt = nowIso();
         });
 
+    if (!fromServer) mutationSeq += 1;
     set({
       boardId,
       doc: next,
@@ -772,16 +870,21 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
 
     if (fromServer) {
       lastSaveAt = Date.now();
-      void clearWal(boardId);
+      // Work that never reached the server is about to be buried by this
+      // document. The write-ahead entry is the only copy left of it, so it stays
+      // and the next load offers it back (spec 7.5.2); it is cleared only when
+      // the board it replaces was clean.
+      if (!state.dirty) void clearWal(boardId);
     } else {
-      void writeWal(boardId, next);
+      void writeWal(boardId, next, etag);
       scheduleAutosave();
     }
   },
 
   acceptWalRecovery() {
-    const { walRecovery, boardId } = get();
+    const { walRecovery, boardId, etag } = get();
     if (!walRecovery || !boardId) return;
+    mutationSeq += 1;
     set({
       doc: walRecovery.doc,
       walRecovery: null,
@@ -790,6 +893,9 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
       undoStack: [],
       redoStack: [],
     });
+    // Re-anchor the entry to the version now on screen, so a second crash before
+    // the save lands still recognises it as unsaved work.
+    void writeWal(boardId, walRecovery.doc, etag);
     scheduleAutosave();
   },
 

@@ -9,14 +9,14 @@
  */
 
 import { app, type HttpRequest, type HttpResponseInit } from '@azure/functions';
-import type { MediaRef } from '@domain/board';
-import { MAX_MEDIA_BYTES } from '@domain/board';
-import { ApiError, PayloadTooLargeError } from '../domain/errors';
-import type { MediaCommitResponse } from '../domain/types';
-import { parseMediaCommitRequest } from '../domain/validate';
-import { getBoardStore, getMediaStore } from '../stores';
-import { readJson, requireBoard, requirePrincipal } from './_shared/context';
-import { json, withHandler } from './_shared/respond';
+import type { MediaRef } from '../../../src/domain/board.js';
+import { MAX_MEDIA_BYTES } from '../../../src/domain/board.js';
+import { ApiError, PayloadTooLargeError } from '../domain/errors.js';
+import type { MediaCommitResponse } from '../domain/types.js';
+import { parseMediaCommitRequest } from '../domain/validate.js';
+import { getBoardStore, getMediaStore } from '../stores/index.js';
+import { readJson, requireBoard, requirePrincipal } from './_shared/context.js';
+import { json, withHandler } from './_shared/respond.js';
 
 /**
  * 409: the upload the client is committing is not in storage, or is not the

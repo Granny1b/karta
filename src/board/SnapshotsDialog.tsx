@@ -27,7 +27,13 @@ export default function SnapshotsDialog(): JSX.Element {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
-    if (!boardId) return;
+    if (!boardId) {
+      // No board, no history — and the dialog still has to be closable, so it
+      // lands on the empty state rather than sitting at "Loading…" forever.
+      setSnapshots([]);
+      setError('Open a board to see its restore points.');
+      return;
+    }
     setError(null);
     try {
       const list = await api.listSnapshots(boardId);

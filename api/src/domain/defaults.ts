@@ -7,8 +7,8 @@
  */
 
 import { ulid } from 'ulid';
-import type { BoardDoc, Id, StatusDef, Viewport } from '@domain/board';
-import { DEFAULT_STATUS_NAMES, SCHEMA_VERSION } from '@domain/board';
+import type { BoardDoc, Id, StatusDef, Viewport } from '../../../src/domain/board.js';
+import { DEFAULT_STATUS_NAMES, SCHEMA_VERSION } from '../../../src/domain/board.js';
 
 export const DEFAULT_BOARD_TITLE = 'Namnlös tavla';
 

@@ -127,17 +127,18 @@ export function applyImport(
 
     const cardsIn = input.cards ?? [];
     const notesIn = input.notes ?? [];
-    const autoCount =
-      cardsIn.filter((c) => !c.position).length + notesIn.filter((n) => !n.position).length;
     const origin = layoutOrigin(d.nodes);
-    const columns = gridColumns(autoCount);
+    // Every card and note takes a slot, positioned or not, so the grid here is
+    // the one the exporter reads backwards (`io/exporter.ts`). Numbering only
+    // the positionless ones would slide everything after a placed card into
+    // its neighbour's slot, stacking the two rectangles on a round trip.
+    const columns = gridColumns(cardsIn.length + notesIn.length);
     let slot = 0;
 
     const place = (given: { x: number; y: number } | undefined): { x: number; y: number } => {
-      if (given) return { x: given.x, y: given.y };
       const position = gridSlot(origin, columns, slot);
       slot += 1;
-      return position;
+      return given ? { x: given.x, y: given.y } : position;
     };
 
     /* ---------------- ranks ---------------- */
@@ -176,7 +177,9 @@ export function applyImport(
         checklist: checklistOf(card),
         statusId,
         rank: nextRank(statusId),
-        labelIds: (card.labels ?? []).map((name) => ensureLabel(name)),
+        // Names that differ only in case are one label; the card must not
+        // hold its id twice.
+        labelIds: [...new Set((card.labels ?? []).map((name) => ensureLabel(name)))],
         dueDate: card.due ?? null,
         collapsed: card.collapsed ?? false,
         color: card.color ?? null,
@@ -185,7 +188,7 @@ export function applyImport(
       });
       d.nodes.push(node);
       summary.cards += 1;
-      if (card.key) idByKey.set(card.key, node.id);
+      if (card.key && !idByKey.has(card.key)) idByKey.set(card.key, node.id);
       remember(node.title, node.id);
     }
 
@@ -198,7 +201,9 @@ export function applyImport(
       });
       d.nodes.push(node);
       summary.notes += 1;
-      if (note.key) idByKey.set(note.key, node.id);
+      // One namespace for cards and notes, first claimant wins, so an edge
+      // never lands on whichever list happened to be read last.
+      if (note.key && !idByKey.has(note.key)) idByKey.set(note.key, node.id);
     }
 
     /* ---------------- edges ---------------- */

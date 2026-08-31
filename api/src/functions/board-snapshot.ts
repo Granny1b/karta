@@ -8,10 +8,10 @@
  */
 
 import { app, type HttpRequest, type HttpResponseInit } from '@azure/functions';
-import type { SnapshotResponse } from '../domain/types';
-import { getBoardStore } from '../stores';
-import { requireBoard, requireBoardId, requirePrincipal } from './_shared/context';
-import { json, withHandler } from './_shared/respond';
+import type { SnapshotResponse } from '../domain/types.js';
+import { getBoardStore } from '../stores/index.js';
+import { requireBoard, requireBoardId, requirePrincipal } from './_shared/context.js';
+import { json, withHandler } from './_shared/respond.js';
 
 app.http('board-snapshot', {
   methods: ['POST'],

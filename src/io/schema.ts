@@ -8,7 +8,7 @@
  */
 
 import type { ColorToken, EdgeSemantic, HexColor } from '@/domain/board';
-import { TEMPER_TOKENS, isColorToken, isHexColor } from '@/lib/colors';
+import { TEMPER_TOKENS, isColorToken, normalizeHex } from '@/lib/colors';
 
 export interface KartaImportBoard {
   title?: string;
@@ -86,6 +86,26 @@ const SEMANTIC_LIST = EDGE_SEMANTICS.join(', ');
 const MAX_ERRORS = 40;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * Length caps, mirroring `api/src/domain/validate.ts`. They are enforced here
+ * because the API enforces them at save time: a value the importer waves
+ * through is a board that looks fine on screen and that every autosave from
+ * then on rejects (spec 5.6). Overlong text is cut with a warning — a value
+ * problem degrades, it does not fail the import.
+ */
+export const IMPORT_LIMITS = {
+  /** Card title, group title, edge reference. */
+  title: 300,
+  /** Status and label names. */
+  name: 120,
+  /** Card body — markdown. */
+  body: 200_000,
+  checklistText: 2_000,
+  noteText: 20_000,
+  edgeLabel: 300,
+  icon: 64,
+} as const;
+
 const BOARD_KEYS = new Set(['title', 'icon']);
 const STATUS_KEYS = new Set(['name', 'color', 'isDone']);
 const LABEL_KEYS = new Set(['name', 'color']);
@@ -140,11 +160,31 @@ function unknownKeys(p: Problems, obj: Record<string, unknown>, path: string, kn
   }
 }
 
+/**
+ * Cut an overlong value down to what the API will store, rather than letting
+ * the user discover the limit as a save that fails forever.
+ */
+function truncate(p: Problems, value: string, path: string, max: number): string {
+  if (value.length <= max) return value;
+  let cut = value.slice(0, max);
+  const last = cut.charCodeAt(cut.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1); // never split a surrogate pair
+  p.warn(`${path} is longer than ${max} characters and was shortened.`);
+  return cut.trimEnd();
+}
+
+/**
+ * @param options.required  a missing or non-string value is an error
+ * @param options.allowEmpty an explicitly empty string is kept as `''` rather
+ *   than dropped — a card whose title the user cleared, or an untouched sticky
+ *   note, must survive its own backup
+ * @param options.max       longer values are truncated with a warning
+ */
 function readString(
   p: Problems,
   value: unknown,
   path: string,
-  options: { required?: boolean } = {},
+  options: { required?: boolean; allowEmpty?: boolean; max?: number } = {},
 ): string | undefined {
   if (value === undefined || value === null) {
     if (options.required) p.error(`${path} is required.`);
@@ -156,10 +196,11 @@ function readString(
   }
   const trimmed = value.trim();
   if (trimmed.length === 0) {
+    if (options.allowEmpty) return '';
     if (options.required) p.error(`${path} cannot be empty.`);
     return undefined;
   }
-  return trimmed;
+  return options.max === undefined ? trimmed : truncate(p, trimmed, path, options.max);
 }
 
 function readBoolean(p: Problems, value: unknown, path: string): boolean | undefined {
@@ -204,7 +245,11 @@ function readPosition(
   return { x, y };
 }
 
-/** Tokens and `#RRGGBB` both allowed; anything else is dropped with a warning. */
+/**
+ * Tokens and hex are both allowed. Hex arrives in whatever shape it was
+ * written — `#f00`, `F00`, `#FF0000` — and leaves as the one shape the
+ * document may carry, `#ff0000`; anything else is dropped with a warning.
+ */
 function readColor(p: Problems, value: unknown, path: string): ColorToken | HexColor | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'string') {
@@ -213,8 +258,13 @@ function readColor(p: Problems, value: unknown, path: string): ColorToken | HexC
   }
   const trimmed = value.trim();
   if (isColorToken(trimmed)) return trimmed;
-  if (isHexColor(trimmed)) return trimmed.toLowerCase();
-  p.warn(`${path} "${trimmed}" is not a Karta colour (${COLOR_LIST}, or #RRGGBB) and was ignored.`);
+  const lower = trimmed.toLowerCase();
+  if (isColorToken(lower)) return lower;
+  const hex = normalizeHex(trimmed);
+  if (hex) return hex;
+  p.warn(
+    `${path} "${trimmed}" is not a Karta colour (${COLOR_LIST}, #RRGGBB or #RGB) and was ignored.`,
+  );
   return undefined;
 }
 
@@ -250,12 +300,24 @@ function readDue(p: Problems, value: unknown, path: string): string | undefined 
  * both accepted, and normalised into the portable shape first.
  * ------------------------------------------------------------------ */
 
+/**
+ * A full board export, as opposed to the portable shape. The decision is made
+ * on which array actually carries the content: an object that announces the
+ * portable format, or whose `cards`/`notes` hold what its `nodes` do not, is
+ * read as portable however many stray keys it has. Guessing wrong here loses
+ * every card silently, so it errs towards the shape that has something in it.
+ */
 function looksLikeBoardDoc(value: unknown): value is Record<string, unknown> {
-  return (
-    isRecord(value) &&
-    Array.isArray(value.nodes) &&
-    (typeof value.schemaVersion === 'number' || Array.isArray(value.statuses))
-  );
+  if (!isRecord(value)) return false;
+  if (!Array.isArray(value.nodes)) return false;
+  if (value.kartaVersion !== undefined) return false; // it says it is portable
+  const cards = Array.isArray(value.cards) ? value.cards : undefined;
+  const notes = Array.isArray(value.notes) ? value.notes : undefined;
+  if (cards || notes) {
+    if (value.nodes.length === 0) return false; // nothing to read from `nodes`
+    if ((cards?.length ?? 0) > 0 || (notes?.length ?? 0) > 0) return false;
+  }
+  return typeof value.schemaVersion === 'number' || Array.isArray(value.statuses);
 }
 
 function nameById(list: unknown, id: unknown): string | undefined {
@@ -376,12 +438,15 @@ function validateStatuses(p: Problems, raw: unknown): KartaImportStatus[] | unde
   list.forEach((entry, i) => {
     const path = `statuses[${i}]`;
     if (!isRecord(entry)) {
-      const name = readString(p, entry, path, { required: true });
+      const name = readString(p, entry, path, { required: true, max: IMPORT_LIMITS.name });
       if (name) out.push({ name });
       return;
     }
     unknownKeys(p, entry, path, STATUS_KEYS);
-    const name = readString(p, entry.name, `${path}.name`, { required: true });
+    const name = readString(p, entry.name, `${path}.name`, {
+      required: true,
+      max: IMPORT_LIMITS.name,
+    });
     if (!name) return;
     const key = name.toLowerCase();
     if (seen.has(key)) {
@@ -410,6 +475,7 @@ function validateLabels(p: Problems, raw: unknown): KartaImportLabel[] | undefin
     if (record) unknownKeys(p, record, path, LABEL_KEYS);
     const name = readString(p, record ? record.name : entry, record ? `${path}.name` : path, {
       required: true,
+      max: IMPORT_LIMITS.name,
     });
     if (!name) return;
     const key = name.toLowerCase();
@@ -434,9 +500,14 @@ function validateChecklist(
   const out: KartaImportChecklistItem[] = [];
   list.forEach((entry, i) => {
     const itemPath = `${path}[${i}]`;
+    // Both forms treat an empty item the same way: it is kept, because a card
+    // on the board can hold one and a backup has to restore it.
     if (typeof entry === 'string') {
-      const text = readString(p, entry, itemPath);
-      if (text) out.push({ text, done: false });
+      const text = readString(p, entry, itemPath, {
+        allowEmpty: true,
+        max: IMPORT_LIMITS.checklistText,
+      });
+      if (text !== undefined) out.push({ text, done: false });
       return;
     }
     if (!isRecord(entry)) {
@@ -444,24 +515,32 @@ function validateChecklist(
       return;
     }
     unknownKeys(p, entry, itemPath, new Set(['text', 'done']));
-    const text = readString(p, entry.text, `${itemPath}.text`, { required: true });
-    if (!text) return;
+    const text = readString(p, entry.text, `${itemPath}.text`, {
+      required: true,
+      allowEmpty: true,
+      max: IMPORT_LIMITS.checklistText,
+    });
+    if (text === undefined) return;
     out.push({ text, done: readBoolean(p, entry.done, `${itemPath}.done`) ?? false });
   });
   return out;
 }
 
-function validateCards(p: Problems, raw: unknown): KartaImportCard[] | undefined {
+/** @param keys the one key namespace shared with {@link validateNotes}. */
+function validateCards(p: Problems, raw: unknown, keys: Set<string>): KartaImportCard[] | undefined {
   const list = readArray(p, raw, 'cards');
   if (!list) return undefined;
 
   const out: KartaImportCard[] = [];
-  const keys = new Set<string>();
   list.forEach((entry, i) => {
     const path = `cards[${i}]`;
     if (typeof entry === 'string') {
-      const title = readString(p, entry, path, { required: true });
-      if (title) out.push({ title });
+      const title = readString(p, entry, path, {
+        required: true,
+        allowEmpty: true,
+        max: IMPORT_LIMITS.title,
+      });
+      if (title !== undefined) out.push({ title });
       return;
     }
     if (!isRecord(entry)) {
@@ -470,12 +549,22 @@ function validateCards(p: Problems, raw: unknown): KartaImportCard[] | undefined
     }
     unknownKeys(p, entry, path, CARD_KEYS);
 
-    const title = readString(p, entry.title, `${path}.title`, { required: true });
-    if (!title) return;
+    // A title must be *there*, but it may be empty: the card editor lets one
+    // be cleared, and the board's own backup has to be readable again.
+    const title = readString(p, entry.title, `${path}.title`, {
+      required: true,
+      allowEmpty: true,
+      max: IMPORT_LIMITS.title,
+    });
+    if (title === undefined) return;
 
-    const key = readString(p, entry.key, `${path}.key`);
+    // Keys are import-local handles, so they are only capped where a title is
+    // — an edge naming a long title must still resolve to it.
+    const key = readString(p, entry.key, `${path}.key`, { max: IMPORT_LIMITS.title });
     if (key !== undefined) {
-      if (keys.has(key)) p.warn(`${path}.key "${key}" is used more than once; edges may attach to the wrong card.`);
+      if (keys.has(key)) {
+        p.warn(`${path}.key "${key}" is used more than once; edges may attach to the wrong card.`);
+      }
       keys.add(key);
     }
 
@@ -483,20 +572,17 @@ function validateCards(p: Problems, raw: unknown): KartaImportCard[] | undefined
     let body: string | undefined;
     if (entry.body !== undefined && entry.body !== null) {
       if (typeof entry.body !== 'string') p.error(`${path}.body must be text.`);
-      else if (entry.body.length > 0) body = entry.body;
+      else if (entry.body.length > 0) {
+        body = truncate(p, entry.body, `${path}.body`, IMPORT_LIMITS.body);
+      }
     }
-
-    const labelsRaw = readArray(p, entry.labels, `${path}.labels`);
-    const labels = labelsRaw
-      ?.map((name, j) => readString(p, name, `${path}.labels[${j}]`, { required: true }))
-      .filter((name): name is string => name !== undefined);
 
     out.push({
       key,
       title,
       body,
-      status: readString(p, entry.status, `${path}.status`),
-      labels: labels && labels.length > 0 ? labels : undefined,
+      status: readString(p, entry.status, `${path}.status`, { max: IMPORT_LIMITS.name }),
+      labels: validateCardLabels(p, entry.labels, path),
       checklist: validateChecklist(p, entry.checklist, `${path}.checklist`),
       color: readColor(p, entry.color, `${path}.color`),
       due: readDue(p, entry.due, `${path}.due`),
@@ -507,7 +593,37 @@ function validateCards(p: Problems, raw: unknown): KartaImportCard[] | undefined
   return out;
 }
 
-function validateNotes(p: Problems, raw: unknown): KartaImportNote[] | undefined {
+/**
+ * The names on one card. Repeats are dropped case-insensitively — the same
+ * rule the top-level `labels` list follows — because they all resolve to one
+ * label, and a card holding the same label id three times renders the chip
+ * three times and lies about how many are hidden.
+ */
+function validateCardLabels(p: Problems, raw: unknown, path: string): string[] | undefined {
+  const list = readArray(p, raw, `${path}.labels`);
+  if (!list) return undefined;
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  list.forEach((entry, j) => {
+    const name = readString(p, entry, `${path}.labels[${j}]`, {
+      required: true,
+      max: IMPORT_LIMITS.name,
+    });
+    if (name === undefined) return;
+    const key = name.toLowerCase();
+    if (seen.has(key)) {
+      p.warn(`${path}.labels "${name}" appears twice on the same card; the duplicate was ignored.`);
+      return;
+    }
+    seen.add(key);
+    out.push(name);
+  });
+  return out.length > 0 ? out : undefined;
+}
+
+/** @param keys the one key namespace shared with {@link validateCards}. */
+function validateNotes(p: Problems, raw: unknown, keys: Set<string>): KartaImportNote[] | undefined {
   const list = readArray(p, raw, 'notes');
   if (!list) return undefined;
 
@@ -515,8 +631,12 @@ function validateNotes(p: Problems, raw: unknown): KartaImportNote[] | undefined
   list.forEach((entry, i) => {
     const path = `notes[${i}]`;
     if (typeof entry === 'string') {
-      const text = readString(p, entry, path, { required: true });
-      if (text) out.push({ text });
+      const text = readString(p, entry, path, {
+        required: true,
+        allowEmpty: true,
+        max: IMPORT_LIMITS.noteText,
+      });
+      if (text !== undefined) out.push({ text });
       return;
     }
     if (!isRecord(entry)) {
@@ -524,10 +644,26 @@ function validateNotes(p: Problems, raw: unknown): KartaImportNote[] | undefined
       return;
     }
     unknownKeys(p, entry, path, NOTE_KEYS);
-    const text = readString(p, entry.text, `${path}.text`, { required: true });
-    if (!text) return;
+    // An untouched sticky note has no text at all; it is still a note.
+    const text = readString(p, entry.text, `${path}.text`, {
+      required: true,
+      allowEmpty: true,
+      max: IMPORT_LIMITS.noteText,
+    });
+    if (text === undefined) return;
+
+    const key = readString(p, entry.key, `${path}.key`, { max: IMPORT_LIMITS.title });
+    if (key !== undefined) {
+      if (keys.has(key)) {
+        p.warn(
+          `${path}.key "${key}" is already used by another card or note; edges may attach to the wrong thing.`,
+        );
+      }
+      keys.add(key);
+    }
+
     out.push({
-      key: readString(p, entry.key, `${path}.key`),
+      key,
       text,
       color: readColor(p, entry.color, `${path}.color`),
       position: readPosition(p, entry.position, `${path}.position`),
@@ -548,8 +684,13 @@ function validateEdges(p: Problems, raw: unknown): KartaImportEdge[] | undefined
       return;
     }
     unknownKeys(p, entry, path, EDGE_KEYS);
-    const from = readString(p, entry.from, `${path}.from`, { required: true });
-    const to = readString(p, entry.to, `${path}.to`, { required: true });
+    // Capped exactly as a title is, so a reference to a shortened title still
+    // matches the card it was shortened into.
+    const from = readString(p, entry.from, `${path}.from`, {
+      required: true,
+      max: IMPORT_LIMITS.title,
+    });
+    const to = readString(p, entry.to, `${path}.to`, { required: true, max: IMPORT_LIMITS.title });
     if (!from || !to) return;
 
     let semantic: EdgeSemantic | undefined;
@@ -560,7 +701,12 @@ function validateEdges(p: Problems, raw: unknown): KartaImportEdge[] | undefined
       else p.warn(`${path}.semantic "${rawSemantic}" is not one of ${SEMANTIC_LIST}; "relates" was used.`);
     }
 
-    out.push({ from, to, semantic, label: readString(p, entry.label, `${path}.label`) });
+    out.push({
+      from,
+      to,
+      semantic,
+      label: readString(p, entry.label, `${path}.label`, { max: IMPORT_LIMITS.edgeLabel }),
+    });
   });
   return out;
 }
@@ -573,9 +719,12 @@ function validateBoard(p: Problems, raw: unknown): KartaImportBoard | undefined 
   }
   unknownKeys(p, raw, 'board', BOARD_KEYS);
   const board: KartaImportBoard = {};
-  const title = readString(p, raw.title, 'board.title');
+  const title = readString(p, raw.title, 'board.title', { max: IMPORT_LIMITS.title });
   if (title !== undefined) board.title = title;
-  if ('icon' in raw) board.icon = typeof raw.icon === 'string' ? raw.icon : null;
+  if ('icon' in raw) {
+    board.icon =
+      typeof raw.icon === 'string' ? truncate(p, raw.icon, 'board.icon', IMPORT_LIMITS.icon) : null;
+  }
   return board;
 }
 
@@ -613,10 +762,13 @@ export function validateImport(raw: unknown): ValidationResult {
   const labels = validateLabels(p, shape.labels);
   if (labels && labels.length > 0) value.labels = labels;
 
-  const cards = validateCards(p, shape.cards);
+  // Cards and notes share one key namespace: an edge names a key, not a list.
+  const keys = new Set<string>();
+
+  const cards = validateCards(p, shape.cards, keys);
   if (cards && cards.length > 0) value.cards = cards;
 
-  const notes = validateNotes(p, shape.notes);
+  const notes = validateNotes(p, shape.notes, keys);
   if (notes && notes.length > 0) value.notes = notes;
 
   const edges = validateEdges(p, shape.edges);

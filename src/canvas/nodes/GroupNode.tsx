@@ -2,6 +2,7 @@ import { memo } from 'react';
 import type { NodeProps } from '@xyflow/react';
 import { colorValue } from '@/lib/colors';
 import { cx } from '@/canvas/cx';
+import NodeResize from '@/canvas/nodes/NodeResize';
 import type { GroupFlowNode } from '@/canvas/types';
 
 /**
@@ -14,18 +15,22 @@ function GroupNodeView({ data, selected }: NodeProps<GroupFlowNode>): JSX.Elemen
   const accent = colorValue(group.color);
 
   return (
-    <div
-      className={cx('karta-frame', selected && 'is-selected')}
-      style={{ borderColor: accent, background: `color-mix(in srgb, ${accent} 6%, transparent)` }}
-    >
-      <span
-        className={cx('karta-group-grip', group.locked && 'is-locked')}
-        style={{ borderColor: accent }}
+    <>
+      {/* Outside the frame: the frame itself takes no pointer events at all. */}
+      <NodeResize node={group} selected={selected === true} />
+      <div
+        className={cx('karta-frame', selected && 'is-selected')}
+        style={{ borderColor: accent, background: `color-mix(in srgb, ${accent} 6%, transparent)` }}
       >
-        <span className="karta-group-dot" style={{ background: accent }} aria-hidden />
-        {group.title.trim().length > 0 ? group.title : 'Group'}
-      </span>
-    </div>
+        <span
+          className={cx('karta-group-grip', group.locked && 'is-locked')}
+          style={{ borderColor: accent }}
+        >
+          <span className="karta-group-dot" style={{ background: accent }} aria-hidden />
+          {group.title.trim().length > 0 ? group.title : 'Group'}
+        </span>
+      </div>
+    </>
   );
 }
 

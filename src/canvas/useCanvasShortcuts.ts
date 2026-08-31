@@ -15,6 +15,8 @@ export interface CanvasShortcutHandlers {
   zoomToFit(): void;
   zoomTo100(): void;
   selectAll(): void;
+  /** Title-only rendering for the selected cards (spec 5.2). */
+  toggleCollapse(): void;
   applyColor(color: ColorToken): void;
   /** Arrow-key nudge, already scaled: 8 px, or 1 px with Shift. */
   nudge(dx: number, dy: number): void;
@@ -26,6 +28,40 @@ const ARROWS: Record<string, [number, number]> = {
   ArrowLeft: [-1, 0],
   ArrowRight: [1, 0],
 };
+
+/**
+ * Controls that turn Enter into their own activation. The browser synthesises
+ * the click on keydown, so cancelling that event silences the control — which
+ * is why Enter is the one canvas key that steps aside for the focused element.
+ */
+const ACTIVATES_ON_ENTER =
+  'button, a[href], summary, [role="button"], [role="menuitem"], [role="tab"], [role="option"], [role="switch"], [role="checkbox"]';
+
+/** Structural, so a test can stand in for an element without a DOM. */
+interface ClosestTarget {
+  closest(selectors: string): unknown;
+}
+
+function ancestorMatching(target: EventTarget | null, selector: string): boolean {
+  if (target === null || typeof target !== 'object') return false;
+  const candidate = target as Partial<ClosestTarget>;
+  if (typeof candidate.closest !== 'function') return false;
+  const found = candidate.closest(selector);
+  return found !== null && found !== undefined;
+}
+
+/** True when the focused control owns Enter and the canvas must not take it. */
+export function ownsEnterActivation(target: EventTarget | null): boolean {
+  return ancestorMatching(target, ACTIVATES_ON_ENTER);
+}
+
+/**
+ * True inside a modal. A dialog owns the keyboard whether or not it announced
+ * itself through `ui.dialog` — the conflict dialog (spec 6.4) does not.
+ */
+export function insideDialog(target: EventTarget | null): boolean {
+  return ancestorMatching(target, '[role="dialog"]');
+}
 
 /**
  * The canvas half of the keyboard table (spec 9). Undo, redo, the view toggle
@@ -46,6 +82,9 @@ export function useCanvasShortcuts(enabled: boolean, handlers: CanvasShortcutHan
       const editing = isEditableTarget(event.target);
       const mod = event.ctrlKey || event.metaKey;
 
+      // Nothing behind a modal acts on a keystroke, however that modal is run.
+      if (insideDialog(event.target)) return;
+
       if (!editing && !mod && !event.altKey) {
         const arrow = ARROWS[event.key];
         if (arrow) {
@@ -59,6 +98,19 @@ export function useCanvasShortcuts(enabled: boolean, handlers: CanvasShortcutHan
       if (mod && !event.altKey && !editing && event.key.toLowerCase() === 'a') {
         event.preventDefault();
         h.selectAll();
+        return;
+      }
+
+      if (
+        !editing &&
+        !mod &&
+        !event.altKey &&
+        !event.shiftKey &&
+        !event.repeat &&
+        (event.key === 'c' || event.key === 'C')
+      ) {
+        event.preventDefault();
+        h.toggleCollapse();
         return;
       }
 
@@ -84,6 +136,10 @@ export function useCanvasShortcuts(enabled: boolean, handlers: CanvasShortcutHan
           h.newNote();
           break;
         case 'open-editor':
+          // Spec 9 scopes this to "Enter (node selected)", which is the canvas
+          // surface, a node, or nothing focused at all — never a control that
+          // the user tabbed to and is trying to press.
+          if (ownsEnterActivation(event.target)) return;
           event.preventDefault();
           h.openEditor();
           break;

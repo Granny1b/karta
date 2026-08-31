@@ -71,25 +71,32 @@ cp api/local.settings.json.example api/local.settings.json
 ```
 
 The defaults point at [Azurite](https://learn.microsoft.com/azure/storage/common/storage-use-azurite)
-(`UseDevelopmentStorage=true`), which is the easiest option — run `npx azurite --silent` and
-create the `boards`, `media` and `snapshots` containers once. To develop against real storage
-instead, paste that account's connection string and name into
-`STORAGE_CONNECTION_STRING` / `STORAGE_ACCOUNT_NAME`. `api/local.settings.json` is not
-committed.
+(`UseDevelopmentStorage=true`, which `api/src/stores/index.ts` expands to the well-known
+development account and its `http://127.0.0.1:10000` endpoint), which is the easiest option —
+run `npx azurite --silent` and create the `boards`, `media` and `snapshots` containers once. To
+develop against real storage instead, paste that account's connection string into
+`STORAGE_CONNECTION_STRING`; it is the only storage setting the API reads.
+`api/local.settings.json` is not committed.
 
 Run the two halves together with the Static Web Apps CLI so `/api` and `/.auth` behave the way
 they do in production:
 
 ```bash
-npm run start --prefix api  # func start, port 7071
-npx swa start http://localhost:5173 --api-location api
+npm run start --prefix api  # builds, smoke-loads the entry points, then func start on 7071
+npx swa start http://localhost:5173 --api-devserver-url http://localhost:7071
 ```
+
+`--api-devserver-url` rather than `--api-location api`: the latter makes the SWA CLI start its
+*own* `func` on port 7071, which the host from the first line already holds, and the collision
+takes the whole emulator down. Pointing at the running host also keeps the `prestart` build,
+which is what compiles `api/dist` — the SWA CLI does not build the API for you.
 
 Useful checks before pushing:
 
 ```bash
 npx tsc -p tsconfig.app.json --noEmit   # app typecheck
 npm run typecheck --prefix api          # api typecheck
+npm run build --prefix api              # api build + entry-point smoke load
 npm test                                # vitest
 ```
 

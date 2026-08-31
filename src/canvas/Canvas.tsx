@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent as ReactClipboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -20,17 +28,33 @@ import {
   type OnNodeDrag,
   type XYPosition,
 } from '@xyflow/react';
-import { DEFAULT_NODE_SIZE, type BoardNode, type ColorToken, type Handle as HandleSide, type Id } from '@/domain/board';
+import {
+  DEFAULT_NODE_SIZE,
+  type BoardNode,
+  type CardNode,
+  type ColorToken,
+  type Handle as HandleSide,
+  type Id,
+} from '@/domain/board';
 import { api } from '@/lib/api';
+import { isEditableTarget } from '@/lib/keys';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
 import { cardNodes } from '@/state/selectors';
 import { makeCard, makeEdge, makeNote, nextCardRank } from '@/state/factories';
 import { useCanvasImageDrop } from '@/media/paste';
 import ConnectMenu from '@/canvas/ConnectMenu';
+import { collectForClipboard, holdForClipboard, payloadForMarker } from '@/canvas/clipboard';
 import { extractToBoard } from '@/canvas/extract';
 import { isHandleSide, oppositeSide, syncFlowEdges, syncFlowNodes } from '@/canvas/mapping';
-import { duplicateNodes, frameAround, nodesInsideFrame } from '@/canvas/ops';
+import {
+  duplicateNodes,
+  frameAround,
+  nextCollapsed,
+  nodesInsideFrame,
+  offsetToCentre,
+  pasteNodes,
+} from '@/canvas/ops';
 import { edgeTypes } from '@/canvas/edges';
 import { nodeTypes } from '@/canvas/nodes';
 import { useCanvasShortcuts } from '@/canvas/useCanvasShortcuts';
@@ -69,6 +93,7 @@ function FadingBackground(): JSX.Element {
 function CanvasSurface(): JSX.Element | null {
   const doc = useBoardStore((s) => s.doc);
   const boardId = useBoardStore((s) => s.boardId);
+  const saveState = useBoardStore((s) => s.saveState);
   const view = useUiStore((s) => s.view);
   const dialog = useUiStore((s) => s.dialog);
 
@@ -361,9 +386,76 @@ function CanvasSurface(): JSX.Element | null {
     if (kind === 'card' || kind === 'note') useUiStore.getState().openEditor(node.id);
   }, []);
 
-  /* --- image paste and drop (spec 7.3) ----------------------------------- */
+  /* --- clipboard: images (spec 7.3) and nodes (spec 9) ------------------- */
 
   const imageDrop = useCanvasImageDrop(boardId, screenToFlowPosition);
+
+  const onCopy = useCallback(
+    (event: ReactClipboardEvent<HTMLDivElement>): void => {
+      // A field inside the canvas keeps its own copy behaviour.
+      if (isEditableTarget(event.target)) return;
+
+      const current = useBoardStore.getState().doc;
+      if (!current || selectedNodeIds.length === 0) return;
+      const payload = collectForClipboard(current, selectedNodeIds);
+      if (!payload) return;
+
+      event.preventDefault();
+      event.clipboardData.setData('text/plain', holdForClipboard(payload));
+      useUiStore
+        .getState()
+        .toast(payload.nodes.length === 1 ? 'Copied 1 node' : `Copied ${payload.nodes.length} nodes`);
+    },
+    [selectedNodeIds],
+  );
+
+  /** True when the event carried our nodes, so the image handler can stand down. */
+  const pasteNodesFromClipboard = useCallback(
+    (event: ReactClipboardEvent<HTMLDivElement>): boolean => {
+      if (isEditableTarget(event.target)) return false;
+      const payload = payloadForMarker(event.clipboardData.getData('text/plain'));
+      if (!payload) return false;
+
+      const store = useBoardStore.getState();
+      const current = store.doc;
+      if (!current) return false;
+
+      event.preventDefault();
+      const ui = useUiStore.getState();
+      const at = screenToFlowPosition(imageDrop.pointerPosition());
+      const offset = offsetToCentre(payload.nodes, at, altPressed ? 1 : SNAP_GRID[0]);
+      const paste = pasteNodes(current, payload, store.me?.userId ?? '', offset);
+
+      if (paste.nodes.length === 0) {
+        ui.toast('Those images live on another board — paste them there.', 'warn');
+        return true;
+      }
+
+      pendingSelection.current = paste.nodes.map((node) => node.id);
+      store.mutate(paste.nodes.length === 1 ? 'Paste node' : `Paste ${paste.nodes.length} nodes`, (d) => {
+        d.nodes.push(...paste.nodes);
+        d.edges.push(...paste.edges);
+      });
+      if (paste.skipped > 0) {
+        ui.toast(
+          paste.skipped === 1
+            ? 'One image was left behind — its file lives on another board.'
+            : `${paste.skipped} images were left behind — their files live on another board.`,
+          'warn',
+        );
+      }
+      return true;
+    },
+    [altPressed, imageDrop, screenToFlowPosition],
+  );
+
+  const onPaste = useCallback(
+    (event: ReactClipboardEvent<HTMLDivElement>): void => {
+      if (pasteNodesFromClipboard(event)) return;
+      imageDrop.onPaste(event);
+    },
+    [imageDrop, pasteNodesFromClipboard],
+  );
 
   /* --- keyboard ---------------------------------------------------------- */
 
@@ -437,6 +529,25 @@ function CanvasSurface(): JSX.Element | null {
     [selectedNodeIds],
   );
 
+  const toggleCollapse = useCallback((): void => {
+    const store = useBoardStore.getState();
+    const current = store.doc;
+    if (!current || selectedNodeIds.length === 0) return;
+
+    const wanted = new Set(selectedNodeIds);
+    const cards = current.nodes.filter(
+      (node): node is CardNode => node.kind === 'card' && wanted.has(node.id) && !node.locked,
+    );
+    if (cards.length === 0) return;
+
+    const collapsed = nextCollapsed(cards);
+    store.mutate(collapsed ? 'Collapse cards' : 'Expand cards', (d) => {
+      for (const node of d.nodes) {
+        if (node.kind === 'card' && wanted.has(node.id) && !node.locked) node.collapsed = collapsed;
+      }
+    });
+  }, [selectedNodeIds]);
+
   const extract = useCallback((): void => {
     if (extracting.current) return;
     const ui = useUiStore.getState();
@@ -465,7 +576,9 @@ function CanvasSurface(): JSX.Element | null {
       });
   }, [selectedNodeIds]);
 
-  useCanvasShortcuts(view === 'canvas' && dialog === null, {
+  // A conflict is a blocking dialog that does not announce itself through
+  // `ui.dialog` (spec 6.4), and nothing behind it may edit the document.
+  useCanvasShortcuts(view === 'canvas' && dialog === null && saveState !== 'conflict', {
     newCard: () => createNode('card', centreOfView()),
     newNote: () => createNode('note', centreOfView()),
     openEditor: () => {
@@ -490,6 +603,7 @@ function CanvasSurface(): JSX.Element | null {
     zoomToFit: () => void fitView({ padding: 0.2, duration: 200, maxZoom: 1 }),
     zoomTo100: () => void zoomTo(1, { duration: 200 }),
     selectAll: () => selectNodes(nodesRef.current.map((node) => node.id)),
+    toggleCollapse,
     applyColor,
     nudge,
   });
@@ -501,7 +615,8 @@ function CanvasSurface(): JSX.Element | null {
       ref={wrapperRef}
       className="karta-canvas"
       tabIndex={-1}
-      onPaste={imageDrop.onPaste}
+      onCopy={onCopy}
+      onPaste={onPaste}
       onDrop={imageDrop.onDrop}
       onDragOver={imageDrop.onDragOver}
       onPointerDownCapture={focusSurface}

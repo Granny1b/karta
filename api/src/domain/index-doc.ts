@@ -8,8 +8,8 @@
  * from a diff.
  */
 
-import type { BoardDoc, BoardIndex, BoardSummary, Id } from '@domain/board';
-import { SCHEMA_VERSION, isCardNode } from '@domain/board';
+import type { BoardDoc, BoardIndex, BoardSummary, Id } from '../../../src/domain/board.js';
+import { SCHEMA_VERSION, isCardNode } from '../../../src/domain/board.js';
 
 export function emptyIndex(): BoardIndex {
   return { schemaVersion: SCHEMA_VERSION, updatedAt: new Date().toISOString(), boards: [] };

@@ -29,6 +29,13 @@ export interface CanvasImageDrop {
   onPaste(event: ClipboardLike): void;
   onDrop(event: DragLike): void;
   onDragOver(event: DragLike): void;
+  /**
+   * Where the pointer was last seen, in screen coordinates, or the centre of
+   * the window if it has not moved yet. A paste carries no coordinates of its
+   * own, so this is what "at the cursor" means for every Ctrl+V — the canvas
+   * pastes cards at the same spot this hook drops images.
+   */
+  pointerPosition(): { x: number; y: number };
   /** True while at least one upload is in flight. */
   uploading: boolean;
 }
@@ -145,19 +152,26 @@ export function useCanvasImageDrop(
     y: window.innerHeight / 2,
   });
 
+  const pointerPosition = useCallback(
+    (): { x: number; y: number } => pointer.current ?? centreOfWindow(),
+    [],
+  );
+
   const onPaste = useCallback(
     (event: ClipboardLike): void => {
       const files = imageFilesFrom(event.clipboardData);
-      if (files.length === 0) return; // let the canvas handle a pasted card
+      // Nothing to upload. A pasted card is the canvas's business and it has
+      // already had its go at the event by the time this runs.
+      if (files.length === 0) return;
 
       event.preventDefault();
       if (!boardId) {
         useUiStore.getState().toast('Open a board before adding an image.', 'warn');
         return;
       }
-      void upload(files, pointer.current ?? centreOfWindow());
+      void upload(files, pointerPosition());
     },
-    [boardId, upload],
+    [boardId, pointerPosition, upload],
   );
 
   const onDrop = useCallback(
@@ -186,5 +200,5 @@ export function useCanvasImageDrop(
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
   }, []);
 
-  return { onPaste, onDrop, onDragOver, uploading: pending > 0 };
+  return { onPaste, onDrop, onDragOver, pointerPosition, uploading: pending > 0 };
 }

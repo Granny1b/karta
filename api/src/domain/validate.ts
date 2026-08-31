@@ -20,22 +20,22 @@ import type {
   ColorToken,
   Id,
   MediaContentType,
-} from '@domain/board';
+} from '../../../src/domain/board.js';
 import {
   MAX_MEDIA_BYTES,
   SCHEMA_VERSION,
   SIZE_HARD_STOP_BYTES,
   SIZE_WARN_BYTES,
   SIZE_WARN_NODES,
-} from '@domain/board';
-import { BadRequestError } from './errors';
+} from '../../../src/domain/board.js';
+import { BadRequestError } from './errors.js';
 import type {
   CreateBoardRequest,
   MediaCommitRequest,
   PutBoardRequest,
   RestoreRequest,
   UploadUrlRequest,
-} from './types';
+} from './types.js';
 
 /* ------------------------------------------------------------------ *
  * Primitive shapes
@@ -611,15 +611,19 @@ export function parsePutBoardRequest(raw: unknown, boardId: Id): PutBoardRequest
     if (!Array.isArray(orphansRaw)) {
       throw new BadRequestError('orphanBlobPaths must be an array of blob paths.');
     }
-    if (orphansRaw.length > MAX_ORPHANS) {
+    const entries = orphansRaw as unknown[];
+    if (entries.length > MAX_ORPHANS) {
       throw new BadRequestError(`orphanBlobPaths holds more than ${MAX_ORPHANS} entries.`);
     }
-    for (const path of orphansRaw) {
-      if (!isSafeMediaPath(path, boardId)) {
-        throw new BadRequestError('orphanBlobPaths may only name media blobs of this board.');
-      }
-    }
-    orphanBlobPaths = orphansRaw as string[];
+    // Anything that is not a blob of this board is dropped, not rejected. A
+    // board can legitimately hold MediaRefs minted under another board's
+    // prefix — "extract to board" and "save a copy" both hand the new document
+    // the parent's refs verbatim — and the client queues those exact paths when
+    // such an image is deleted. Throwing would wedge the board: the save fails,
+    // the client only clears its orphan queue on success, and every later
+    // autosave repeats the same rejection. Dropping keeps the delete surface
+    // strictly inside the caller's own board without ever blocking a write.
+    orphanBlobPaths = entries.filter((path): path is string => isSafeMediaPath(path, boardId));
   }
 
   return { doc: result.doc, orphanBlobPaths };

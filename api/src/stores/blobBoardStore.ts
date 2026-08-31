@@ -14,12 +14,12 @@
  */
 
 import { RestError, type BlobServiceClient, type ContainerClient } from '@azure/storage-blob';
-import type { BoardDoc, BoardIndex, Id, SnapshotRef } from '@domain/board';
-import { buildSummary, emptyIndex, removeSummary, upsertSummary } from '../domain/index-doc';
-import { BadRequestError, NotFoundError, PreconditionFailedError } from '../domain/errors';
-import { migrate } from '../domain/migrate';
-import { isSnapshotName, isUlid } from '../domain/validate';
-import type { BoardStore } from './types';
+import type { BoardDoc, BoardIndex, Id, SnapshotRef } from '../../../src/domain/board.js';
+import { buildSummary, emptyIndex, removeSummary, upsertSummary } from '../domain/index-doc.js';
+import { BadRequestError, NotFoundError, PreconditionFailedError } from '../domain/errors.js';
+import { migrate } from '../domain/migrate.js';
+import { isSnapshotName, isUlid } from '../domain/validate.js';
+import type { BoardStore } from './types.js';
 
 const INDEX_BLOB = '_index.json';
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';

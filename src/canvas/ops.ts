@@ -1,4 +1,5 @@
-import type { BoardDoc, BoardNode, Edge, GroupNode, Id } from '@/domain/board';
+import type { BoardDoc, BoardNode, CardNode, Edge, GroupNode, Id } from '@/domain/board';
+import type { ClipboardPayload } from '@/canvas/clipboard';
 import { nowIso } from '@/lib/format';
 import { newId } from '@/lib/ids';
 import { rankAfterAll } from '@/lib/ranks';
@@ -80,24 +81,30 @@ export interface Duplication {
 }
 
 /**
- * Copies of the given nodes, offset so the copy is visible, plus the edges that
- * ran between them. Ids, checklist item ids and card ranks are all freshly
- * minted; everything else is carried over.
+ * Copies of `sources` placed into `target`, offset by `offset`, plus whichever
+ * of `candidateEdges` ran between two of them. Ids, checklist item ids and card
+ * ranks are all freshly minted; everything else is carried over, except the
+ * references that only mean something on the board the copy came from — a
+ * status, label or cover image `target` does not have is dropped rather than
+ * written as a dangling id the server rejects (spec 6.3).
  */
-export function duplicateNodes(
-  doc: BoardDoc,
-  ids: readonly Id[],
+function copyNodes(
+  target: BoardDoc,
+  sources: readonly BoardNode[],
+  candidateEdges: readonly Edge[],
   userId: string,
-  offset: Point = { x: 24, y: 24 },
+  offset: Point,
 ): Duplication {
-  const wanted = new Set(ids);
-  const sources = doc.nodes.filter((node) => wanted.has(node.id));
   const idMap = new Map<Id, Id>();
   const stamp = nowIso();
 
-  // Ranks per column, so duplicated cards land after everything already there.
+  const statusIds = new Set(target.statuses.map((status) => status.id));
+  const labelIds = new Set(target.labels.map((label) => label.id));
+  const mediaIds = new Set(target.media.map((media) => media.id));
+
+  // Ranks per column, so copied cards land after everything already there.
   const ranksByColumn = new Map<string, string[]>();
-  for (const node of doc.nodes) {
+  for (const node of target.nodes) {
     if (node.kind !== 'card') continue;
     const key = node.statusId ?? '';
     const list = ranksByColumn.get(key);
@@ -112,7 +119,10 @@ export function duplicateNodes(
     const copy: BoardNode = {
       ...source,
       id,
-      position: { x: source.position.x + offset.x, y: source.position.y + offset.y },
+      position: {
+        x: Math.round(source.position.x + offset.x),
+        y: Math.round(source.position.y + offset.y),
+      },
       size: { ...source.size },
       createdAt: stamp,
       updatedAt: stamp,
@@ -120,6 +130,7 @@ export function duplicateNodes(
     };
 
     if (copy.kind === 'card') {
+      if (copy.statusId !== null && !statusIds.has(copy.statusId)) copy.statusId = null;
       const key = copy.statusId ?? '';
       const ranks = ranksByColumn.get(key) ?? [];
       const rank = rankAfterAll(ranks);
@@ -127,7 +138,8 @@ export function duplicateNodes(
       ranksByColumn.set(key, ranks);
       copy.rank = rank;
       copy.checklist = copy.checklist.map((item) => ({ ...item, id: newId() }));
-      copy.labelIds = [...copy.labelIds];
+      copy.labelIds = copy.labelIds.filter((labelId) => labelIds.has(labelId));
+      if (copy.coverMediaId !== null && !mediaIds.has(copy.coverMediaId)) copy.coverMediaId = null;
     }
     if (copy.kind === 'boardLink' && copy.cachedCounts) {
       copy.cachedCounts = { ...copy.cachedCounts };
@@ -139,7 +151,7 @@ export function duplicateNodes(
     return copy;
   });
 
-  const edges = doc.edges
+  const edges = candidateEdges
     .filter((edge) => idMap.has(edge.source) && idMap.has(edge.target))
     .map<Edge>((edge) => ({
       ...edge,
@@ -150,4 +162,61 @@ export function duplicateNodes(
     }));
 
   return { nodes, edges, idMap };
+}
+
+/**
+ * Copies of the given nodes, offset so the copy is visible, plus the edges that
+ * ran between them.
+ */
+export function duplicateNodes(
+  doc: BoardDoc,
+  ids: readonly Id[],
+  userId: string,
+  offset: Point = { x: 24, y: 24 },
+): Duplication {
+  const wanted = new Set(ids);
+  const sources = doc.nodes.filter((node) => wanted.has(node.id));
+  return copyNodes(doc, sources, doc.edges, userId, offset);
+}
+
+export interface Paste extends Duplication {
+  /** Nodes this board cannot hold — an image whose file lives on another one. */
+  skipped: number;
+}
+
+/**
+ * A clipboard payload turned into nodes for `doc` (spec 9). An image is left
+ * behind when its media is not on this board: the blob is stored under the
+ * board it was uploaded to, so the copy would render an empty frame.
+ */
+export function pasteNodes(
+  doc: BoardDoc,
+  payload: ClipboardPayload,
+  userId: string,
+  offset: Point,
+): Paste {
+  const mediaIds = new Set(doc.media.map((media) => media.id));
+  const usable = payload.nodes.filter((node) => node.kind !== 'image' || mediaIds.has(node.mediaId));
+  const copy = copyNodes(doc, usable, payload.edges, userId, offset);
+  return { ...copy, skipped: payload.nodes.length - usable.length };
+}
+
+/**
+ * What a collapse toggle should write for a selection: one that is collapsed
+ * all the way through opens, anything else collapses (spec 5.2).
+ */
+export function nextCollapsed(cards: readonly CardNode[]): boolean {
+  return !cards.every((card) => card.collapsed);
+}
+
+/** The offset that lands the bounding box of `nodes` centred on `at`. */
+export function offsetToCentre(nodes: readonly BoardNode[], at: Point, grid = 1): Point {
+  const bounds = boundsOfNodes(nodes);
+  if (!bounds) return { x: 0, y: 0 };
+  const centre = centreOfBounds(bounds);
+  const step = grid > 0 ? grid : 1;
+  return {
+    x: Math.round((at.x - centre.x) / step) * step,
+    y: Math.round((at.y - centre.y) / step) * step,
+  };
 }

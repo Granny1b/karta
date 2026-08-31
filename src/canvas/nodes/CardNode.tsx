@@ -7,8 +7,10 @@ import { formatDue } from '@/lib/format';
 import { progressOf } from '@/state/selectors';
 import { useBoardStore } from '@/state/boardStore';
 import { cx } from '@/canvas/cx';
+import { contentLod } from '@/canvas/lod';
 import { previewText } from '@/canvas/markdown';
 import NodeHandles from '@/canvas/nodes/NodeHandles';
+import NodeResize from '@/canvas/nodes/NodeResize';
 import ProgressRing from '@/canvas/nodes/ProgressRing';
 import { useCardDimmed, useLod, useMediaSrc } from '@/canvas/nodes/hooks';
 import type { CardFlowNode } from '@/canvas/types';
@@ -45,7 +47,10 @@ function LabelChips({ ids, labels }: { ids: string[]; labels: LabelDef[] }): JSX
  */
 function CardNodeView({ data, selected, dragging }: NodeProps<CardFlowNode>): JSX.Element {
   const card = data.node;
-  const lod = useLod();
+  // The camera drives the frame — root class, handles, the block rectangle —
+  // while a collapsed card draws its title and nothing else (spec 5.2).
+  const zoomLod = useLod();
+  const lod = contentLod(zoomLod, card.collapsed);
   const dimmed = useCardDimmed(card);
   const labels = useBoardStore((s) => s.doc?.labels);
   const cover = useMediaSrc(card.coverMediaId, 'thumb');
@@ -57,85 +62,95 @@ function CardNodeView({ data, selected, dragging }: NodeProps<CardFlowNode>): JS
 
   const root = cx(
     'karta-node',
-    `karta-lod-${lod}`,
+    `karta-lod-${zoomLod}`,
     selected && 'is-selected',
     dragging && 'is-dragging',
     card.locked && 'is-locked',
   );
 
-  if (lod === 'block') {
+  // The resizer sits outside the card body: the body clips its overflow, and
+  // half of every handle hangs over the edge it resizes.
+  const resizer = <NodeResize node={card} selected={selected === true} />;
+
+  if (zoomLod === 'block') {
     return (
-      <div
-        className={cx(root, 'karta-block')}
-        style={{ background: accent, opacity: dimmed ? 0.25 : undefined }}
-        title={title}
-      >
-        <NodeHandles connectable={!card.locked} />
-      </div>
+      <>
+        {resizer}
+        <div
+          className={cx(root, 'karta-block')}
+          style={{ background: accent, opacity: dimmed ? 0.25 : undefined }}
+          title={title}
+        >
+          <NodeHandles connectable={!card.locked} />
+        </div>
+      </>
     );
   }
 
   return (
-    <div className={root} style={{ opacity: dimmed ? 0.25 : undefined }} title={title}>
-      <span className="karta-colorbar" style={{ background: accent }} aria-hidden />
+    <>
+      {resizer}
+      <div className={root} style={{ opacity: dimmed ? 0.25 : undefined }} title={title}>
+        <span className="karta-colorbar" style={{ background: accent }} aria-hidden />
 
-      {lod === 'full' && (
-        <div className="flex h-full flex-col gap-1 overflow-hidden py-2 pl-4 pr-2.5">
-          {cover && (
-            <img
-              src={cover}
-              alt=""
-              draggable={false}
-              className="h-14 w-full shrink-0 rounded-[3px] object-cover"
-            />
-          )}
-          <div className="karta-card-title line-clamp-2">{title}</div>
-          {card.body.trim().length > 0 && (
-            <p className="line-clamp-2 text-[12px] leading-snug text-ink-muted">
-              {previewText(card.body, 160)}
-            </p>
-          )}
-          <div className="mt-auto flex min-h-[16px] flex-wrap items-center gap-1.5 pt-1">
-            {progress.total > 0 && (
-              <span className="flex items-center gap-1 text-[11px] tabular-nums text-ink-muted">
-                <ProgressRing done={progress.done} total={progress.total} color={accent} />
-                {progress.done}/{progress.total}
-              </span>
+        {lod === 'full' && (
+          <div className="flex h-full flex-col gap-1 overflow-hidden py-2 pl-4 pr-2.5">
+            {cover && (
+              <img
+                src={cover}
+                alt=""
+                draggable={false}
+                className="h-14 w-full shrink-0 rounded-[3px] object-cover"
+              />
             )}
-            <LabelChips ids={card.labelIds} labels={labels ?? []} />
-            {due.tone !== 'none' && (
-              <span className={cx('karta-due', `karta-due-${due.tone}`)}>{due.text}</span>
+            <div className="karta-card-title line-clamp-2">{title}</div>
+            {card.body.trim().length > 0 && (
+              <p className="line-clamp-2 text-[12px] leading-snug text-ink-muted">
+                {previewText(card.body, 160)}
+              </p>
             )}
-            {card.locked && <Lock size={11} className="ml-auto text-ink-muted" aria-label="Locked" />}
+            <div className="mt-auto flex min-h-[16px] flex-wrap items-center gap-1.5 pt-1">
+              {progress.total > 0 && (
+                <span className="flex items-center gap-1 text-[11px] tabular-nums text-ink-muted">
+                  <ProgressRing done={progress.done} total={progress.total} color={accent} />
+                  {progress.done}/{progress.total}
+                </span>
+              )}
+              <LabelChips ids={card.labelIds} labels={labels ?? []} />
+              {due.tone !== 'none' && (
+                <span className={cx('karta-due', `karta-due-${due.tone}`)}>{due.text}</span>
+              )}
+              {card.locked && <Lock size={11} className="ml-auto text-ink-muted" aria-label="Locked" />}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {lod === 'compact' && (
-        <div className="flex h-full items-center gap-2 overflow-hidden py-2 pl-4 pr-2.5">
-          {cover && (
-            <img
-              src={cover}
-              alt=""
-              draggable={false}
-              className="h-9 w-9 shrink-0 rounded-[3px] object-cover"
-            />
-          )}
-          <div className="karta-card-title line-clamp-3 min-w-0 flex-1">{title}</div>
-          {progress.total > 0 && (
-            <ProgressRing done={progress.done} total={progress.total} color={accent} size={18} />
-          )}
-        </div>
-      )}
+        {lod === 'compact' && (
+          <div className="flex h-full items-center gap-2 overflow-hidden py-2 pl-4 pr-2.5">
+            {cover && (
+              <img
+                src={cover}
+                alt=""
+                draggable={false}
+                className="h-9 w-9 shrink-0 rounded-[3px] object-cover"
+              />
+            )}
+            <div className="karta-card-title line-clamp-3 min-w-0 flex-1">{title}</div>
+            {progress.total > 0 && (
+              <ProgressRing done={progress.done} total={progress.total} color={accent} size={18} />
+            )}
+          </div>
+        )}
 
-      {lod === 'title' && (
-        <div className="flex h-full items-center overflow-hidden py-2 pl-4 pr-2.5">
-          <div className="karta-card-title truncate">{title}</div>
-        </div>
-      )}
+        {lod === 'title' && (
+          <div className="flex h-full items-center overflow-hidden py-2 pl-4 pr-2.5">
+            <div className="karta-card-title truncate">{title}</div>
+          </div>
+        )}
 
-      <NodeHandles connectable={!card.locked} />
-    </div>
+        <NodeHandles connectable={!card.locked} />
+      </div>
+    </>
   );
 }
 

@@ -11,11 +11,11 @@
  */
 
 import { app, type HttpRequest, type HttpResponseInit } from '@azure/functions';
-import type { BoardDoc } from '@domain/board';
-import { assertOwner } from '../auth/acl';
-import { getBoardStore } from '../stores';
-import { requireBoard, requireBoardId, requirePrincipal } from './_shared/context';
-import { noContent, withHandler } from './_shared/respond';
+import type { BoardDoc } from '../../../src/domain/board.js';
+import { assertOwner } from '../auth/acl.js';
+import { getBoardStore } from '../stores/index.js';
+import { requireBoard, requireBoardId, requirePrincipal } from './_shared/context.js';
+import { noContent, withHandler } from './_shared/respond.js';
 
 app.http('board-delete', {
   methods: ['DELETE'],

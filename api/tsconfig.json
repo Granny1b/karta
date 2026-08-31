@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "lib": ["ES2022"],
     "outDir": "dist",
     "rootDir": "..",
@@ -11,9 +11,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "sourceMap": false,
-    "baseUrl": ".",
-    "paths": { "@domain/*": ["../src/domain/*"] }
+    "sourceMap": false
   },
   "include": ["src/**/*.ts", "../src/domain/**/*.ts"]
 }

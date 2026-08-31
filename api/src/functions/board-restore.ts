@@ -9,13 +9,13 @@
  */
 
 import { app, type HttpRequest, type HttpResponseInit } from '@azure/functions';
-import type { BoardDoc } from '@domain/board';
-import { NotFoundError } from '../domain/errors';
-import type { BoardResponse } from '../domain/types';
-import { parseRestoreRequest } from '../domain/validate';
-import { getBoardStore } from '../stores';
-import { readJson, requireBoard, requireBoardId, requirePrincipal } from './_shared/context';
-import { json, withHandler } from './_shared/respond';
+import type { BoardDoc } from '../../../src/domain/board.js';
+import { NotFoundError } from '../domain/errors.js';
+import type { BoardResponse } from '../domain/types.js';
+import { parseRestoreRequest } from '../domain/validate.js';
+import { getBoardStore } from '../stores/index.js';
+import { readJson, requireBoard, requireBoardId, requirePrincipal } from './_shared/context.js';
+import { json, withHandler } from './_shared/respond.js';
 
 app.http('board-restore', {
   methods: ['POST'],

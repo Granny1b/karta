@@ -7,12 +7,12 @@
  */
 
 import { app, type HttpRequest, type HttpResponseInit } from '@azure/functions';
-import type { BoardResponse } from '../domain/types';
-import { newBoardDoc } from '../domain/defaults';
-import { parseCreateBoardRequest } from '../domain/validate';
-import { getBoardStore } from '../stores';
-import { readJson, requireBoard, requirePrincipal } from './_shared/context';
-import { json, withHandler } from './_shared/respond';
+import type { BoardResponse } from '../domain/types.js';
+import { newBoardDoc } from '../domain/defaults.js';
+import { parseCreateBoardRequest } from '../domain/validate.js';
+import { getBoardStore } from '../stores/index.js';
+import { readJson, requireBoard, requirePrincipal } from './_shared/context.js';
+import { json, withHandler } from './_shared/respond.js';
 
 app.http('boards-create', {
   methods: ['POST'],

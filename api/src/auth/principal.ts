@@ -8,7 +8,7 @@
  * not a 500.
  */
 
-import type { Me } from '@domain/board';
+import type { Me } from '../../../src/domain/board.js';
 
 export interface ClientPrincipal {
   userId: string;

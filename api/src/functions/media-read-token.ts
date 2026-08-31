@@ -12,12 +12,12 @@
  */
 
 import { app, type HttpRequest, type HttpResponseInit } from '@azure/functions';
-import type { Iso } from '@domain/board';
-import type { ReadTokenResponse } from '../domain/types';
-import { getMediaStore } from '../stores';
-import { READ_SAS_TTL_MINUTES } from '../stores/types';
-import { requirePrincipal } from './_shared/context';
-import { json, withHandler } from './_shared/respond';
+import type { Iso } from '../../../src/domain/board.js';
+import type { ReadTokenResponse } from '../domain/types.js';
+import { getMediaStore } from '../stores/index.js';
+import { READ_SAS_TTL_MINUTES } from '../stores/types.js';
+import { requirePrincipal } from './_shared/context.js';
+import { json, withHandler } from './_shared/respond.js';
 
 interface ReadTokenBody extends ReadTokenResponse {
   baseUrl: string;

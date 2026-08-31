@@ -1,9 +1,9 @@
 /** `GET /api/me` — identity and roles, straight from `x-ms-client-principal`. */
 
 import { app, type HttpRequest, type HttpResponseInit } from '@azure/functions';
-import { toMe } from '../auth/principal';
-import { requirePrincipal } from './_shared/context';
-import { json, withHandler } from './_shared/respond';
+import { toMe } from '../auth/principal.js';
+import { requirePrincipal } from './_shared/context.js';
+import { json, withHandler } from './_shared/respond.js';
 
 app.http('me', {
   methods: ['GET'],

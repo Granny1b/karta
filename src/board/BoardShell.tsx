@@ -72,7 +72,7 @@ export default function BoardShell(): JSX.Element {
         {dialog === 'export' ? <ExportDialog /> : null}
         {dialog === 'search' ? <SearchDialog /> : null}
         {dialog === 'shortcuts' ? <ShortcutsDialog /> : null}
-        {dialog === 'snapshots' && doc ? <SnapshotsDialog /> : null}
+        {dialog === 'snapshots' ? <SnapshotsDialog /> : null}
 
         <ConflictDialog />
         <WalRecoveryPrompt />

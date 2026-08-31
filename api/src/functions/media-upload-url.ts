@@ -10,12 +10,12 @@
  */
 
 import { app, type HttpRequest, type HttpResponseInit } from '@azure/functions';
-import type { UploadTarget } from '@domain/board';
+import type { UploadTarget } from '../../../src/domain/board.js';
 import { ulid } from 'ulid';
-import { parseUploadUrlRequest } from '../domain/validate';
-import { getBoardStore, getMediaStore } from '../stores';
-import { readJson, requireBoard, requirePrincipal } from './_shared/context';
-import { json, withHandler } from './_shared/respond';
+import { parseUploadUrlRequest } from '../domain/validate.js';
+import { getBoardStore, getMediaStore } from '../stores/index.js';
+import { readJson, requireBoard, requirePrincipal } from './_shared/context.js';
+import { json, withHandler } from './_shared/respond.js';
 
 app.http('media-upload-url', {
   methods: ['POST'],

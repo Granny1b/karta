@@ -206,6 +206,10 @@ function initialsFor(name: string): string {
 
 function AccountMenu(): JSX.Element {
   const me = useBoardStore((s) => s.me);
+  // Restore points are a board's own history, so the item is only live once a
+  // board is open — a dialog that cannot render must never be asked for, or
+  // `ui.dialog` is left set with nothing on screen to clear it.
+  const doc = useBoardStore((s) => s.doc);
   const setDialog = useUiStore((s) => s.setDialog);
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -220,7 +224,8 @@ function AccountMenu(): JSX.Element {
   }, [open]);
 
   const name = me?.userDetails ?? '';
-  const item = 'flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] text-ink hover:bg-sunken';
+  const item =
+    'flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] text-ink hover:bg-sunken disabled:text-ink-muted disabled:hover:bg-transparent';
 
   return (
     <div
@@ -250,6 +255,8 @@ function AccountMenu(): JSX.Element {
           <button
             type="button"
             className={item}
+            disabled={!doc}
+            title={doc ? undefined : 'Open a board first'}
             onClick={() => {
               setOpen(false);
               setDialog('snapshots');

@@ -4,8 +4,8 @@
   "type": "module",
   "main": "dist/api/src/functions/*.js",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
+    "build": "tsc -p tsconfig.build.json && node scripts/smoke-load.mjs",
+    "watch": "tsc -p tsconfig.build.json -w",
     "prestart": "npm run build",
     "start": "func start",
     "typecheck": "tsc --noEmit"

@@ -8,9 +8,9 @@
  *     editors write, viewers read.
  */
 
-import type { BoardDoc } from '@domain/board';
-import { ForbiddenError, UnauthorizedError } from '../domain/errors';
-import type { ClientPrincipal } from './principal';
+import type { BoardDoc } from '../../../src/domain/board.js';
+import { ForbiddenError, UnauthorizedError } from '../domain/errors.js';
+import type { ClientPrincipal } from './principal.js';
 
 export const MEMBER_ROLE = 'member';
 

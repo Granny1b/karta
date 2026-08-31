@@ -5,13 +5,13 @@
  */
 
 import type { HttpRequest } from '@azure/functions';
-import type { BoardDoc, Id } from '@domain/board';
-import { assertCanRead, assertCanWrite, assertMember } from '../../auth/acl';
-import type { ClientPrincipal } from '../../auth/principal';
-import { readPrincipal } from '../../auth/principal';
-import { BadRequestError, NotFoundError } from '../../domain/errors';
-import { isUlid } from '../../domain/validate';
-import type { BoardStore } from '../../stores/types';
+import type { BoardDoc, Id } from '../../../../src/domain/board.js';
+import { assertCanRead, assertCanWrite, assertMember } from '../../auth/acl.js';
+import type { ClientPrincipal } from '../../auth/principal.js';
+import { readPrincipal } from '../../auth/principal.js';
+import { BadRequestError, NotFoundError } from '../../domain/errors.js';
+import { isUlid } from '../../domain/validate.js';
+import type { BoardStore } from '../../stores/types.js';
 
 /**
  * Static Web Apps already gates `/api/*` on the `member` role, but the header

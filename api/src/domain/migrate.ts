@@ -17,8 +17,8 @@
  * which is the correct behaviour when an old deployment meets a new document.
  */
 
-import type { BoardDoc } from '@domain/board';
-import { SCHEMA_VERSION } from '@domain/board';
+import type { BoardDoc } from '../../../src/domain/board.js';
+import { SCHEMA_VERSION } from '../../../src/domain/board.js';
 
 type RawDoc = Record<string, unknown>;
 

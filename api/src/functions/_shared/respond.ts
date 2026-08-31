@@ -9,8 +9,8 @@
  */
 
 import type { HttpHandler, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
-import type { ApiErrorCode } from '../../domain/errors';
-import { isApiError, toHttpError } from '../../domain/errors';
+import type { ApiErrorCode } from '../../domain/errors.js';
+import { isApiError, toHttpError } from '../../domain/errors.js';
 
 /**
  * The wire shape of an error.

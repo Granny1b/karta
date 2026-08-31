@@ -45,12 +45,12 @@ Format:
       "status": "Bygger",               // a status NAME, matched case-insensitively
       "labels": ["bug"],                // label NAMES, created if new
       "checklist": ["First step", { "text": "Done already", "done": true }],
-      "color": "blue",                  // straw bronze copper purple blue teal slate, or #RRGGBB
+      "color": "blue",                  // straw bronze copper purple blue teal slate, #RRGGBB or #RGB
       "due": "2026-04-30",              // ISO date or YYYY-MM-DD
       "collapsed": false
     }
   ],
-  "notes": [ { "text": "A sticky note on the canvas", "color": "straw" } ],
+  "notes": [ { "key": "n1", "text": "A sticky note on the canvas", "color": "straw" } ],
   "edges": [
     { "from": "a", "to": "Other card title", "semantic": "depends", "label": "needs" }
   ]
@@ -59,6 +59,7 @@ Format:
 Rules:
 - Only "title" is required on a card. Everything else is optional.
 - "from" and "to" are card keys, or exact card titles.
+- A "key" must be unique across cards *and* notes.
 - "semantic" is one of: relates, depends, blocks, derives. Default is relates.
 - Leave positions out; Karta lays the cards out in a grid.
 - Use 5 to 15 cards unless I ask for more. Titles under 60 characters.
@@ -87,6 +88,11 @@ Here is what I want on the board:
 A **bare array** is accepted as `cards`, so `[{ "title": "One" }, { "title": "Two" }]` is a valid
 import. A **full board export** (the *Full* tab) is accepted too, and is converted automatically.
 
+Mixed-up input is read as whichever shape actually carries the content: an object with both `nodes`
+and `cards` is read as a board export only when its `nodes` hold the content and its `cards` do not.
+So a *Full* export handed to an AI that answered by appending to `cards` still imports those cards —
+and the array that was not used is reported as an ignored field rather than dropped in silence.
+
 ### `statuses[]` and `labels[]`
 
 | Field | Type | Notes |
@@ -99,13 +105,13 @@ import. A **full board export** (the *Full* tab) is accepted too, and is convert
 
 | Field | Type | Notes |
 |---|---|---|
-| `title` | string | **Required.** |
-| `key` | string | A local handle for `edges` to point at. Never stored. |
+| `title` | string | **Required**, but may be `""` — a card whose title was cleared is still a card. |
+| `key` | string | A local handle for `edges` to point at. Never stored. Unique across cards *and* notes. |
 | `body` | string | Markdown. Whitespace is preserved. |
 | `status` | string | A status *name*. Unknown names create a new column at the end. |
-| `labels` | string[] | Label *names*. Unknown names create a label with the default colour. |
+| `labels` | string[] | Label *names*. Unknown names create a label with the default colour. Repeats of the same name, in any case, are dropped. |
 | `checklist` | array | `"text"`, or `{ "text": "…", "done": true }`. |
-| `color` | string | A colour token or `#RRGGBB`. |
+| `color` | string | A colour token, or hex — see **Colours**. |
 | `due` | string | `YYYY-MM-DD` or a full ISO timestamp. |
 | `position` | `{x, y}` | Optional. Omit it and the card is laid out for you. |
 | `collapsed` | boolean | Whether the card renders collapsed on the canvas. |
@@ -114,8 +120,8 @@ import. A **full board export** (the *Full* tab) is accepted too, and is convert
 
 | Field | Type | Notes |
 |---|---|---|
-| `text` | string | **Required.** |
-| `key`, `color`, `position` | | As for cards. |
+| `text` | string | **Required**, but may be `""` — an untouched sticky note has no text. |
+| `key`, `color`, `position` | | As for cards. A `key` shares one namespace with the cards': if the same one appears twice, the first to claim it keeps it, and the second is warned about. |
 
 ### `edges[]`
 
@@ -132,8 +138,38 @@ ambiguous title raises a warning rather than an error.
 ### Colours
 
 `straw`, `bronze`, `copper`, `purple`, `blue`, `teal`, `slate` — the tempering colours of heated
-steel. Any `#RRGGBB` value also works on cards and notes. An unrecognised colour is dropped with a
-warning; it never fails the import.
+steel, matched whatever the case (`Blue` is `blue`). Statuses and labels take a token and nothing
+else; a hex value there is ignored with a warning.
+
+Cards and notes also take a **custom hex colour**, written any of these ways:
+
+| Written | Stored |
+|---|---|
+| `#AB12CD`, `#ab12cd` | `#ab12cd` |
+| `AB12CD` (no hash) | `#ab12cd` |
+| `#f00`, `F00` (shorthand) | `#ff0000` |
+
+Everything is folded into the one form the board stores, `#rrggbb`, because that is the only form
+the server accepts — a colour kept as written would produce a board that could never be saved again.
+Anything else (`rgb(255,0,0)`, `red`, `#ff00`) is dropped with a warning; it never fails the import.
+
+### Length limits
+
+The board is stored as one document, and the server measures every string in it (spec 5.6). The
+importer applies the same limits, so nothing can be imported that could not then be saved. Anything
+longer is **cut to the limit and reported as a warning** — the import still goes through.
+
+| Field | Limit |
+|---|---|
+| Card title, board title, `edges[].from`/`to`/`label` | 300 |
+| Status name, label name | 120 |
+| Board `icon` | 64 |
+| Checklist item text | 2 000 |
+| Note text | 20 000 |
+| Card body | 200 000 |
+
+`from`/`to` are cut at the same 300 characters as a title, so an arrow that names a shortened title
+still finds its card.
 
 ---
 
@@ -214,9 +250,12 @@ Both are a single undo step. Merge is never destructive: it adds, and only adds.
   `"assignee"` still produces a usable import.
 - **Unresolved arrows are warnings.** If `to` names a card that does not exist, that one arrow is
   skipped and the rest of the import goes through.
-- **Value problems degrade, structure problems fail.** An unparseable date or an unknown colour is
-  dropped with a warning; a card without a title, or a `labels` field that is not a list, is an
-  error naming the exact JSON path — `cards[3].title is required.`
+- **Value problems degrade, structure problems fail.** An unparseable date, an unknown colour or a
+  string past its limit is dropped, shortened or normalised with a warning; a card with no `title`
+  key at all, or a `labels` field that is not a list, is an error naming the exact JSON path —
+  `cards[3].title is required.`
+- **Empty is a value, not an error.** An empty title, note or checklist item is kept as it is, so a
+  board that holds one survives its own export and import.
 - **The preview is the truth.** The line at the bottom of the import dialog is produced by running
   the real import against the real board and throwing the result away, so it cannot disagree with
   what the button does.
@@ -227,4 +266,6 @@ Both are a single undo step. Merge is never destructive: it adds, and only adds.
 
 Images, groups and board links live only in the full board document. A *Portable* export skips
 them (and says so), and an arrow with one end on a skipped node is skipped with it. Use
-**Export → Full** for a true backup.
+**Export → Full** for a true backup: everything a *Portable* export carries — statuses, labels,
+colours, checklists, due dates, collapsed cards, arrows and their semantics — comes back exactly as
+it went out, and the round trip is covered by a test in `src/io/importer.test.ts`.

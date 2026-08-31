@@ -12,11 +12,11 @@
  */
 
 import { app, type HttpRequest, type HttpResponseInit } from '@azure/functions';
-import type { BoardIndex } from '@domain/board';
-import { recomputeChildCounts } from '../domain/index-doc';
-import { getBoardStore } from '../stores';
-import { requirePrincipal } from './_shared/context';
-import { json, withHandler } from './_shared/respond';
+import type { BoardIndex } from '../../../src/domain/board.js';
+import { recomputeChildCounts } from '../domain/index-doc.js';
+import { getBoardStore } from '../stores/index.js';
+import { requirePrincipal } from './_shared/context.js';
+import { json, withHandler } from './_shared/respond.js';
 
 app.http('boards-list', {
   methods: ['GET'],

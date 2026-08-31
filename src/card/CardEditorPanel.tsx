@@ -1,6 +1,24 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Eye, ImageOff, Pencil, Trash2, X } from 'lucide-react';
-import { isCardNode, type BoardDoc, type CardNode, type ColorToken, type Id, type Iso } from '@/domain/board';
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Eye,
+  ImageOff,
+  Lock,
+  Pencil,
+  Trash2,
+  X,
+} from 'lucide-react';
+import {
+  isCardNode,
+  isNoteNode,
+  type BoardDoc,
+  type CardNode,
+  type ColorToken,
+  type Id,
+  type Iso,
+  type NoteNode,
+} from '@/domain/board';
 import { formatDateTime } from '@/lib/format';
 import { colorValue } from '@/lib/colors';
 import { makeLabel, nextCardRank } from '@/state/factories';
@@ -15,33 +33,182 @@ import Markdown from '@/card/Markdown';
 import { useDraft } from '@/card/useDraft';
 
 /**
- * The card editor: a 380 px right-hand panel that slides in over the canvas
- * (spec 8.3). Every field writes through `updateNode` with its own undo label;
- * text fields commit on a pause rather than on every keystroke.
+ * The editor: a 380 px right-hand panel that slides in over the canvas (spec
+ * 8.3). It edits the two node kinds that hold text — a card, with everything
+ * spec 5.2 gives it, and a note, which is text and a colour. Every field writes
+ * through `updateNode` with its own undo label; text fields commit on a pause
+ * rather than on every keystroke.
  */
 export default function CardEditorPanel(): JSX.Element | null {
   const editorNodeId = useUiStore((s) => s.editorNodeId);
   const openEditor = useUiStore((s) => s.openEditor);
   const doc = useBoardStore((s) => s.doc);
+  const loading = useBoardStore((s) => s.loading);
 
-  const card = useMemo<CardNode | null>(() => {
+  const target = useMemo<CardNode | NoteNode | null>(() => {
     if (!doc || editorNodeId === null) return null;
     const node = doc.nodes.find((n) => n.id === editorNodeId);
-    return node && isCardNode(node) ? node : null;
+    if (!node) return null;
+    return isCardNode(node) || isNoteNode(node) ? node : null;
   }, [doc, editorNodeId]);
+
+  // An editor aimed at something it cannot draw — a node deleted, undone or
+  // merged away under it, or a kind with no panel — must let go of the id.
+  // Every Escape handler in the shell stands aside while `editorNodeId` is set,
+  // so a stranded id would leave Escape doing nothing at all (spec 9).
+  //
+  // While a load is in flight the document is briefly null and the panel must
+  // survive it, but a load that settles with no document (a failed reload from
+  // the conflict dialog) must still release the id, or Escape stays dead on the
+  // error screen.
+  useEffect(() => {
+    if (editorNodeId === null || loading) return;
+    if (doc === null || target === null) openEditor(null);
+  }, [doc, editorNodeId, loading, openEditor, target]);
 
   // Escape closes the panel even when focus sits out on the canvas (spec 9).
   useEffect(() => {
-    if (card === null) return undefined;
+    if (target === null) return undefined;
     const onKeyDown = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') openEditor(null);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [card, openEditor]);
+  }, [target, openEditor]);
 
-  if (!doc || card === null) return null;
-  return <Editor key={card.id} card={card} doc={doc} onClose={() => openEditor(null)} />;
+  if (!doc || target === null) return null;
+  return target.kind === 'note' ? (
+    <NoteEditor key={target.id} note={target} onClose={() => openEditor(null)} />
+  ) : (
+    <Editor key={target.id} card={target} doc={doc} onClose={() => openEditor(null)} />
+  );
+}
+
+/** The panel itself: the slide-in, and the Escape the canvas must not see. */
+function Panel({
+  label,
+  onClose,
+  children,
+}: {
+  label: string;
+  onClose(): void;
+  children: ReactNode;
+}): JSX.Element {
+  const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  return (
+    <aside
+      aria-label={label}
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape') return;
+        e.stopPropagation();
+        onClose();
+      }}
+      className={`fixed bottom-0 right-0 top-12 z-30 flex w-[380px] max-w-full flex-col border-l border-line bg-raised text-ink transition-transform duration-150 ${
+        shown ? 'translate-x-0' : 'translate-x-full'
+      }`}
+    >
+      {children}
+    </aside>
+  );
+}
+
+/** A sticky is text and a colour, so its editor is exactly that (spec 5.2). */
+function NoteEditor({ note, onClose }: { note: NoteNode; onClose(): void }): JSX.Element {
+  const updateNode = useBoardStore((s) => s.updateNode);
+  const removeNodes = useBoardStore((s) => s.removeNodes);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const text = useDraft(note.text, (value) => updateNode(note.id, { text: value }, 'Edit note'), 700);
+
+  const deleteNote = (): void => {
+    removeNodes([note.id]);
+    onClose();
+  };
+
+  return (
+    <Panel label="Note editor" onClose={onClose}>
+      <header className="flex items-center gap-2 border-b border-line px-4 py-3">
+        <span
+          className="h-6 w-1 shrink-0 rounded-sm"
+          style={{ backgroundColor: colorValue(note.color) }}
+          aria-hidden
+        />
+        <h2 className="min-w-0 flex-1 font-condensed text-[18px] font-semibold">Note</h2>
+        {note.locked ? <Lock size={14} className="text-ink-muted" aria-label="Locked" /> : null}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close the editor"
+          className="rounded p-1 text-ink-muted hover:text-ink"
+        >
+          <X size={16} />
+        </button>
+      </header>
+
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        <Field label="Text">
+          <textarea
+            value={text.value}
+            onChange={(e) => text.setValue(e.target.value)}
+            onBlur={text.flush}
+            readOnly={note.locked}
+            rows={8}
+            placeholder="What is this sticky for?"
+            aria-label="Note text"
+            className="w-full resize-y rounded border border-line bg-raised px-2 py-1.5 text-[15px] leading-[1.5] text-ink outline-none placeholder:text-ink-muted focus:border-[var(--focus)] read-only:text-ink-muted"
+          />
+        </Field>
+
+        <Field label="Colour">
+          <ColorSwatches
+            value={note.color}
+            disabled={note.locked}
+            onChange={(next) => updateNode(note.id, { color: next }, 'Change colour')}
+          />
+        </Field>
+      </div>
+
+      <footer className="flex items-center justify-between gap-2 border-t border-line px-4 py-2">
+        <div className="min-w-0 font-mono text-[11px] leading-tight text-ink-muted">
+          <div className="truncate">Created {formatDateTime(note.createdAt)}</div>
+          <div className="truncate">Updated {formatDateTime(note.updatedAt)}</div>
+        </div>
+        {note.locked ? null : confirmDelete ? (
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={deleteNote}
+              className="rounded border border-line px-2 py-1 text-[13px] text-[var(--temper-copper)] hover:bg-sunken"
+            >
+              Delete note
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(false)}
+              className="px-1 py-1 text-[13px] text-ink-muted hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(true)}
+            aria-label="Delete note"
+            className="shrink-0 rounded border border-line p-1.5 text-ink-muted hover:text-[var(--temper-copper)]"
+          >
+            <Trash2 size={15} />
+          </button>
+        )}
+      </footer>
+    </Panel>
+  );
 }
 
 function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose(): void }): JSX.Element {
@@ -50,14 +217,8 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
   const mutate = useBoardStore((s) => s.mutate);
   const mediaUrl = useMediaUrl();
 
-  const [shown, setShown] = useState(false);
   const [preview, setPreview] = useState(() => card.body.trim().length > 0);
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => setShown(true));
-    return () => cancelAnimationFrame(frame);
-  }, []);
 
   const title = useDraft(card.title, (value) => updateNode(card.id, { title: value }, 'Edit title'));
   const body = useDraft(card.body, (value) => updateNode(card.id, { body: value }, 'Edit body'), 700);
@@ -104,18 +265,13 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
     onClose();
   };
 
+  /** Title-only rendering on the canvas (spec 5.2); `C` does the same thing. */
+  const toggleCollapsed = (): void => {
+    updateNode(card.id, { collapsed: !card.collapsed }, card.collapsed ? 'Expand card' : 'Collapse card');
+  };
+
   return (
-    <aside
-      aria-label="Card editor"
-      onKeyDown={(e) => {
-        if (e.key !== 'Escape') return;
-        e.stopPropagation();
-        onClose();
-      }}
-      className={`fixed bottom-0 right-0 top-12 z-30 flex w-[380px] max-w-full flex-col border-l border-line bg-raised text-ink transition-transform duration-150 ${
-        shown ? 'translate-x-0' : 'translate-x-full'
-      }`}
-    >
+    <Panel label="Card editor" onClose={onClose}>
       <header className="flex items-start gap-2 border-b border-line px-4 py-3">
         <span
           className="mt-0.5 h-6 w-1 shrink-0 rounded-sm"
@@ -130,6 +286,16 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
           aria-label="Card title"
           className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-condensed text-[18px] font-semibold outline-none placeholder:font-sans placeholder:font-normal placeholder:text-ink-muted focus:border-line"
         />
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-pressed={card.collapsed}
+          aria-label={card.collapsed ? 'Show the whole card' : 'Collapse the card to its title'}
+          title={card.collapsed ? 'Show the whole card (C)' : 'Title only on the canvas (C)'}
+          className={`rounded p-1 hover:text-ink ${card.collapsed ? 'text-ink' : 'text-ink-muted'}`}
+        >
+          {card.collapsed ? <ChevronsUpDown size={16} /> : <ChevronsDownUp size={16} />}
+        </button>
         <button
           type="button"
           onClick={onClose}
@@ -319,7 +485,7 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
           </button>
         )}
       </footer>
-    </aside>
+    </Panel>
   );
 }
 
