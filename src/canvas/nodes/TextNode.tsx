@@ -9,7 +9,16 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import { useStoreApi, type NodeProps } from '@xyflow/react';
+import { NodeToolbar, Position, useStoreApi, type NodeProps } from '@xyflow/react';
+import { AlignCenter, AlignLeft, AlignRight, Minus, Plus } from 'lucide-react';
+import {
+  DEFAULT_TEXT_SIZE,
+  MAX_NODE_TEXT,
+  MAX_TEXT_SIZE,
+  MIN_TEXT_SIZE,
+  capNodeText,
+  type TextNode,
+} from '@/domain/board';
 import { colorValue } from '@/lib/colors';
 import { isEditableTarget } from '@/lib/keys';
 import { cx } from '@/canvas/cx';
@@ -17,6 +26,7 @@ import { insideDialog } from '@/canvas/useCanvasShortcuts';
 import NodeHandles from '@/canvas/nodes/NodeHandles';
 import NodeResize from '@/canvas/nodes/NodeResize';
 import { useLod } from '@/canvas/nodes/hooks';
+import { useSoleNodeSelected } from '@/canvas/soleSelection';
 import { useBoardStore } from '@/state/boardStore';
 import type { TextFlowNode } from '@/canvas/types';
 
@@ -30,6 +40,191 @@ const LEADING = 1.6;
 const PAD = 8;
 
 const WEIGHT: Record<'regular' | 'bold', number> = { regular: 400, bold: 600 };
+
+/* ------------------------------------------------------------------ *
+ * The toolbar
+ * ------------------------------------------------------------------ */
+
+/**
+ * The sizes the stepper walks, from the smallest legible to the largest that
+ * is still a heading rather than a wall. A caption, body, subhead, heading and
+ * poster ladder — the steps a person actually wants — instead of ±1 px, which
+ * is 192 clicks from one end to the other.
+ *
+ * It begins at `MIN_TEXT_SIZE` and ends at `MAX_TEXT_SIZE` on purpose: those
+ * are the bounds `api/src/domain/validate.ts` refuses a document outside, so
+ * the control cannot reach a size that cannot be saved.
+ */
+export const TEXT_SIZE_STEPS: readonly number[] = [
+  MIN_TEXT_SIZE, 10, 12, 14, 16, 20, 24, 32, 40, 56, 72, 96, 128, MAX_TEXT_SIZE,
+];
+
+/**
+ * Any stored size, brought inside what the API accepts. A size is not rounded
+ * on the way through: an imported 24.5 px is a legal size, and rounding it
+ * here would make the stepper skip the rung it is standing next to.
+ */
+export function clampTextSize(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_TEXT_SIZE;
+  return Math.min(MAX_TEXT_SIZE, Math.max(MIN_TEXT_SIZE, value));
+}
+
+/**
+ * The next size up or down the ladder. A size that is not on the ladder — one
+ * that arrived through JSON import — steps to the nearest rung in that
+ * direction rather than snapping to the whole ladder, and the ends hold.
+ */
+export function stepTextSize(current: number, direction: 1 | -1): number {
+  const from = clampTextSize(current);
+  if (direction === 1) {
+    return TEXT_SIZE_STEPS.find((step) => step > from) ?? MAX_TEXT_SIZE;
+  }
+  let below = MIN_TEXT_SIZE;
+  for (const step of TEXT_SIZE_STEPS) {
+    if (step < from) below = step;
+  }
+  return below;
+}
+
+const ALIGNS: ReadonlyArray<{ value: TextNode['align']; label: string; Icon: typeof AlignLeft }> = [
+  { value: 'left', label: 'Left', Icon: AlignLeft },
+  { value: 'center', label: 'Centre', Icon: AlignCenter },
+  { value: 'right', label: 'Right', Icon: AlignRight },
+];
+
+const WEIGHTS: ReadonlyArray<{ value: TextNode['weight']; label: string }> = [
+  { value: 'regular', label: 'Regular' },
+  { value: 'bold', label: 'Bold' },
+];
+
+/**
+ * The floating editor for a selected text node, in the language the arrow and
+ * the shape already speak: a counter-scaled surface of named rows, close
+ * enough to the thing it edits to be obviously about it.
+ *
+ * Size, alignment and weight are what free text is *for* — a heading over a
+ * cluster is a heading because it is bigger and bolder than what it heads —
+ * and until this existed they were three fields only the importer could write:
+ * every text node made on the board was 20 px, left, regular, for ever.
+ *
+ * Mounted only while this node is the whole selection, for the reason
+ * `soleSelection` gives: a marquee must not build an editing panel per node it
+ * crosses, and a size applies to one node anyway.
+ */
+function TextToolbar({ text }: { text: TextNode }): JSX.Element | null {
+  const sole = useSoleNodeSelected();
+  if (!sole) return null;
+
+  const set = (
+    patch: Partial<Pick<TextNode, 'fontSize' | 'align' | 'weight'>>,
+    label: string,
+  ): void => {
+    useBoardStore.getState().updateNode(text.id, patch, label);
+  };
+
+  const size = clampTextSize(text.fontSize);
+  const resize = (direction: 1 | -1): void => {
+    const next = stepTextSize(size, direction);
+    if (next !== text.fontSize) set({ fontSize: next }, 'Text size');
+  };
+
+  return (
+    <NodeToolbar
+      isVisible
+      position={Position.Bottom}
+      offset={12}
+      className="nodrag nopan nowheel flex flex-col gap-1.5 border border-line bg-raised p-2"
+      style={{ borderRadius: 'var(--karta-r-surface)', boxShadow: 'var(--karta-overlay-shadow)' }}
+      role="group"
+      aria-label="Text"
+    >
+      <div className="karta-toolbar-row">
+        <span className="karta-toolbar-label" id={`size-${text.id}`}>
+          Size
+        </span>
+        <div className="karta-toolbar-seg ml-auto" role="group" aria-labelledby={`size-${text.id}`}>
+          <button
+            type="button"
+            title="Smaller"
+            aria-label="Smaller"
+            disabled={size <= MIN_TEXT_SIZE}
+            className="karta-tool-btn karta-tool-icon disabled:cursor-default disabled:opacity-40"
+            onClick={() => resize(-1)}
+          >
+            <Minus size={13} />
+          </button>
+          {/* The number itself, so the control says what it did — to the
+              pixel, since a fraction of one is nothing anybody set on purpose. */}
+          <span
+            className="w-8 text-center tabular-nums text-ink"
+            style={{ fontSize: 'var(--karta-t-meta)', lineHeight: '22px' }}
+          >
+            {Math.round(size)}
+          </span>
+          <button
+            type="button"
+            title="Bigger"
+            aria-label="Bigger"
+            disabled={size >= MAX_TEXT_SIZE}
+            className="karta-tool-btn karta-tool-icon disabled:cursor-default disabled:opacity-40"
+            onClick={() => resize(1)}
+          >
+            <Plus size={13} />
+          </button>
+        </div>
+      </div>
+
+      <div className="karta-toolbar-row">
+        <span className="karta-toolbar-label" id={`align-${text.id}`}>
+          Align
+        </span>
+        <div className="karta-toolbar-seg ml-auto" role="group" aria-labelledby={`align-${text.id}`}>
+          {ALIGNS.map(({ value, label, Icon }) => (
+            <button
+              key={value}
+              type="button"
+              title={label}
+              aria-label={label}
+              aria-pressed={text.align === value}
+              className={cx('karta-tool-btn karta-tool-icon', text.align === value && 'is-on')}
+              onClick={() => set({ align: value }, 'Text alignment')}
+            >
+              <Icon size={13} />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="karta-toolbar-row">
+        <span className="karta-toolbar-label" id={`weight-${text.id}`}>
+          Weight
+        </span>
+        <div
+          className="karta-toolbar-seg ml-auto"
+          role="group"
+          aria-labelledby={`weight-${text.id}`}
+        >
+          {WEIGHTS.map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              title={label}
+              aria-pressed={text.weight === value}
+              className={cx('karta-tool-btn', text.weight === value && 'is-on')}
+              onClick={() => set({ weight: value }, 'Text weight')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </NodeToolbar>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * The node
+ * ------------------------------------------------------------------ */
 
 /**
  * Words laid straight onto the board (spec 5.2) — a heading over a cluster, an
@@ -76,14 +271,22 @@ function TextNodeView({ data, selected }: NodeProps<TextFlowNode>): JSX.Element 
    * Committing writes the fitted height with the text, in one undo entry, so
    * the box never lags a line behind what it holds. An unchanged draft — the
    * Escape you press straight after opening the field — writes nothing at all.
+   *
+   * The body is capped here as well as on the field: `maxLength` stops typing
+   * and not a programmatic paste, and one character over `MAX_NODE_TEXT` is a
+   * document the API refuses — and refuses again on every autosave after it.
    */
   const commit = useCallback(
     (value: string): void => {
       const fit = input.current?.scrollHeight ?? 0;
       setDraft(null);
-      if (value === text.text) return;
-      const patch: Record<string, unknown> = { text: value };
-      if (fit > 0 && fit !== text.size.h) patch.size = { w: text.size.w, h: fit };
+      const next = capNodeText(value);
+      if (next === text.text) return;
+      const patch: Record<string, unknown> = { text: next };
+      // A measured height belongs to the text that was measured. When the cap
+      // cut some of it away, the observer below fits the box to what is left.
+      const whole = next.length === value.length;
+      if (whole && fit > 0 && fit !== text.size.h) patch.size = { w: text.size.w, h: fit };
       useBoardStore.getState().updateNode(text.id, patch, 'Edit text');
     },
     [text.id, text.text, text.size.h, text.size.w],
@@ -173,12 +376,18 @@ function TextNodeView({ data, selected }: NodeProps<TextFlowNode>): JSX.Element 
   const resizer = <NodeResize node={text} selected={selected === true} />;
   const root = cx('relative h-full w-full', `karta-lod-${lod}`, editing && 'nodrag');
 
+  // Type is the whole substance of this node, so its editor rides along at
+  // every level of detail — as the shape's colour editor does — and never on a
+  // locked one, which has nothing a control here could change.
+  const toolbar = selected === true && !text.locked ? <TextToolbar text={text} /> : null;
+
   // Below 0.25 no text is legible, so the node keeps its place as a bar in its
   // own ink — the same trade every other node makes at that zoom (spec 7.3).
   if (lod === 'block') {
     return (
       <>
         {resizer}
+        {toolbar}
         <div className={root} style={ring}>
           <div className="absolute inset-0 rounded-[2px] opacity-30" style={{ background: ink }} aria-hidden />
           <NodeHandles connectable={!text.locked} />
@@ -190,6 +399,7 @@ function TextNodeView({ data, selected }: NodeProps<TextFlowNode>): JSX.Element 
   return (
     <>
       {resizer}
+      {toolbar}
       {/* Ink on the canvas casts no shadow while it is dragged: there is no card to lift. */}
       <div className={cx(root, 'group')} style={ring} onDoubleClick={onDoubleClick}>
         {/* Measured, and so never height-constrained: this is what the box fits itself to. */}
@@ -210,6 +420,9 @@ function TextNodeView({ data, selected }: NodeProps<TextFlowNode>): JSX.Element 
             className="nodrag nowheel absolute left-0 right-0 top-0 resize-none overflow-hidden border-0 bg-transparent outline-none"
             style={type}
             value={draft}
+            // Exactly what `api/src/domain/validate.ts` accepts, from the same
+            // constant — the field cannot type a board that cannot be saved.
+            maxLength={MAX_NODE_TEXT}
             spellCheck={false}
             onChange={(event) => setDraft(event.target.value)}
             onBlur={(event) => commit(event.currentTarget.value)}

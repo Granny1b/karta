@@ -22,9 +22,16 @@ import type {
   MediaContentType,
 } from '../../../src/domain/board.js';
 import {
+  MAX_CARD_BODY,
+  MAX_CHECKLIST_TEXT,
+  MAX_EDGE_LABEL,
+  MAX_ICON,
   MAX_MEDIA_BYTES,
+  MAX_NAME,
+  MAX_NODE_TEXT,
   MAX_SHAPE_LABEL,
   MAX_TEXT_SIZE,
+  MAX_TITLE,
   MIN_TEXT_SIZE,
   SHAPE_KINDS,
   SIZE_HARD_STOP_BYTES,
@@ -237,12 +244,12 @@ export type BoardDocValidation =
   | { ok: true; errors: string[]; doc: BoardDoc }
   | { ok: false; errors: string[]; doc: null };
 
-const MAX_TITLE = 300;
-const MAX_NAME = 120;
-const MAX_LABEL = 300;
-const MAX_CHECKLIST_TEXT = 2000;
-/** Note and text-node bodies. */
-const MAX_NODE_TEXT = 20000;
+/*
+ * Every field length this file judges comes from `src/domain/board.ts`, the
+ * one contract both halves compile against — see the note above the limits
+ * there. `MAX_RANK` stays local because nothing on the client writes a rank:
+ * they come out of `fractional-indexing`, which cannot produce a long one.
+ */
 const MAX_RANK = 64;
 
 /**
@@ -280,7 +287,7 @@ export function validateBoardDoc(input: unknown): BoardDocValidation {
     e.add('doc.parentBoardId', 'expected a ULID or null');
   }
   checkString(e, 'doc.title', raw['title'], MAX_TITLE);
-  checkNullableString(e, 'doc.icon', raw['icon'], 64);
+  checkNullableString(e, 'doc.icon', raw['icon'], MAX_ICON);
   checkIso(e, 'doc.createdAt', raw['createdAt']);
   checkIso(e, 'doc.updatedAt', raw['updatedAt']);
   checkNullableIso(e, 'doc.deletedAt', raw['deletedAt']);
@@ -467,7 +474,7 @@ function checkCard(
   labelIds: Set<Id>,
 ): void {
   checkString(e, `${p}.title`, n['title'], MAX_TITLE);
-  checkString(e, `${p}.body`, n['body'], 200000);
+  checkString(e, `${p}.body`, n['body'], MAX_CARD_BODY);
   checkString(e, `${p}.rank`, n['rank'], MAX_RANK);
   checkBool(e, `${p}.collapsed`, n['collapsed']);
   checkNullableIso(e, `${p}.dueDate`, n['dueDate']);
@@ -515,7 +522,9 @@ function checkCard(
 function checkImage(e: ErrorBag, p: string, n: Record<string, unknown>): void {
   checkLocalId(e, `${p}.mediaId`, n['mediaId']);
   checkVec(e, `${p}.naturalSize`, n['naturalSize'], 'w', 'h');
-  checkNullableString(e, `${p}.caption`, n['caption'], MAX_LABEL);
+  // A caption annotates a picture the way a label annotates an arrow, and is
+  // held to the same length by the same number.
+  checkNullableString(e, `${p}.caption`, n['caption'], MAX_EDGE_LABEL);
   checkEnum(e, `${p}.fit`, n['fit'], FITS);
 }
 
@@ -583,7 +592,7 @@ function checkEdges(e: ErrorBag, v: unknown, nodeIds: Set<Id>): void {
     checkEnum(e, `${p}.targetHandle`, entry['targetHandle'], HANDLES);
     checkEnum(e, `${p}.semantic`, entry['semantic'], SEMANTICS);
     checkEnum(e, `${p}.routing`, entry['routing'], ROUTINGS);
-    checkNullableString(e, `${p}.label`, entry['label'], MAX_LABEL);
+    checkNullableString(e, `${p}.label`, entry['label'], MAX_EDGE_LABEL);
     checkColor(e, `${p}.color`, entry['color']);
     checkIso(e, `${p}.updatedAt`, entry['updatedAt']);
   });

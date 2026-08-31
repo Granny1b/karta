@@ -173,6 +173,36 @@ export const SHAPE_KINDS: readonly ShapeKind[] = [
   'callout',
 ];
 
+/* ------------------------------------------------------------------ *
+ * Field length limits
+ *
+ * One number per field, in one place, imported by both halves. The client
+ * caps what a person can type or paste at exactly what
+ * `api/src/domain/validate.ts` will accept, and `src/io/schema.ts` truncates
+ * an import to the same figure — so no value that can reach a document is a
+ * value the API refuses.
+ *
+ * That is the whole point of hoisting them: a document the API refuses is
+ * refused again by every autosave after it, with nothing on screen naming the
+ * field at fault, which is how saving wedged twice in this project. A number
+ * copied into three files is a number that will drift in two of them.
+ * ------------------------------------------------------------------ */
+
+/** Card title, group title, board title — and the reference an edge names one by. */
+export const MAX_TITLE = 300;
+/** Status and label names. */
+export const MAX_NAME = 120;
+/** A card body: markdown, and so the one field allowed to be long. */
+export const MAX_CARD_BODY = 200_000;
+/** One checklist line. */
+export const MAX_CHECKLIST_TEXT = 2_000;
+/** A note's text and a text node's body — the two free-prose node fields. */
+export const MAX_NODE_TEXT = 20_000;
+/** An arrow's label, and an image's caption: one line annotating something else. */
+export const MAX_EDGE_LABEL = 300;
+/** A board icon — one emoji, with room for a compound one. */
+export const MAX_ICON = 64;
+
 /**
  * A shape label is a caption, not a body: one line, two at a push. The number
  * lives here because both halves have to agree on it — the editor caps its
@@ -180,6 +210,29 @@ export const SHAPE_KINDS: readonly ShapeKind[] = [
  * a person can type can produce a document the API refuses.
  */
 export const MAX_SHAPE_LABEL = 300;
+
+/**
+ * Trim a string to what the API will store, never through half a surrogate
+ * pair: a cut between the two halves of an emoji leaves a lone surrogate,
+ * which no font draws and which a JSON round trip turns into U+FFFD.
+ */
+export function capText(value: string, max: number): string {
+  if (value.length <= max) return value;
+  const cut = value.slice(0, max);
+  const last = cut.charCodeAt(cut.length - 1);
+  const splitPair = last >= 0xd800 && last <= 0xdbff;
+  return splitPair ? cut.slice(0, -1) : cut;
+}
+
+/**
+ * The cap for a note's text and a text node's body, applied where the value
+ * is committed.
+ *
+ * `maxLength` on the field is the visible half of the rule and not the
+ * enforceable half — a programmatic paste bypasses it in several browsers —
+ * so the cap is applied on commit as well as on the field.
+ */
+export const capNodeText = (value: string): string => capText(value, MAX_NODE_TEXT);
 
 export const TEXT_ALIGNS: readonly TextNode['align'][] = ['left', 'center', 'right'];
 export const TEXT_WEIGHTS: readonly TextNode['weight'][] = ['regular', 'bold'];

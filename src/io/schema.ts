@@ -8,7 +8,15 @@
  */
 
 import {
+  MAX_CARD_BODY,
+  MAX_CHECKLIST_TEXT,
+  MAX_EDGE_LABEL,
+  MAX_ICON,
+  MAX_NAME,
+  MAX_NODE_TEXT,
+  MAX_SHAPE_LABEL,
   MAX_TEXT_SIZE,
+  MAX_TITLE,
   MIN_TEXT_SIZE,
   SHAPE_KINDS,
   TEXT_ALIGNS,
@@ -124,24 +132,27 @@ const MAX_ERRORS = 40;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Length caps, mirroring `api/src/domain/validate.ts`. They are enforced here
- * because the API enforces them at save time: a value the importer waves
- * through is a board that looks fine on screen and that every autosave from
- * then on rejects (spec 5.6). Overlong text is cut with a warning — a value
- * problem degrades, it does not fail the import.
+ * Length caps, read from `src/domain/board.ts` — the same constants
+ * `api/src/domain/validate.ts` judges a save by, not a second copy of the
+ * numbers. They are enforced here because the API enforces them at save time:
+ * a value the importer waves through is a board that looks fine on screen and
+ * that every autosave from then on rejects (spec 5.6). Overlong text is cut
+ * with a warning — a value problem degrades, it does not fail the import.
  */
 export const IMPORT_LIMITS = {
   /** Card title, group title, edge reference. */
-  title: 300,
+  title: MAX_TITLE,
   /** Status and label names. */
-  name: 120,
+  name: MAX_NAME,
   /** Card body — markdown. */
-  body: 200_000,
-  checklistText: 2_000,
+  body: MAX_CARD_BODY,
+  checklistText: MAX_CHECKLIST_TEXT,
   /** Note text, and the body of a text node. */
-  noteText: 20_000,
-  edgeLabel: 300,
-  icon: 64,
+  noteText: MAX_NODE_TEXT,
+  edgeLabel: MAX_EDGE_LABEL,
+  icon: MAX_ICON,
+  /** A shape's centred caption — shorter than a title on purpose. */
+  shapeLabel: MAX_SHAPE_LABEL,
 } as const;
 
 const BOARD_KEYS = new Set(['title', 'icon']);
@@ -865,9 +876,11 @@ function validateShapes(p: Problems, raw: unknown, keys: Set<string>): KartaImpo
     out.push({
       key: claimKey(p, keys, record.key, path),
       shape,
+      // A shape's own cap, not a title's: they are the same number today, and
+      // the field that must not drift is the one the shape editor types into.
       label: readString(p, record.label, `${path}.label`, {
         allowEmpty: true,
-        max: IMPORT_LIMITS.title,
+        max: IMPORT_LIMITS.shapeLabel,
       }),
       fill: readColor(p, record.fill, `${path}.fill`),
       stroke: readColor(p, record.stroke, `${path}.stroke`),

@@ -6,6 +6,7 @@ import {
   useState,
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
@@ -48,6 +49,14 @@ import { useCanvasImageDrop } from '@/media/paste';
 import CanvasToolbar from '@/canvas/CanvasToolbar';
 import ConnectMenu from '@/canvas/ConnectMenu';
 import Palette from '@/canvas/Palette';
+import SelectionMenu, {
+  NO_SELECTION,
+  SelectionAffordance,
+  SelectionOpsContext,
+  readSelectionFacts,
+  type SelectionFacts,
+  type SelectionOps,
+} from '@/canvas/SelectionMenu';
 import EmptyCanvasHint from '@/board/EmptyCanvasHint';
 import { collectForClipboard, holdForClipboard, payloadForMarker } from '@/canvas/clipboard';
 import { extractToBoard } from '@/canvas/extract';
@@ -73,6 +82,7 @@ import {
   type CreateLink,
 } from '@/canvas/dragCreate';
 import {
+  boundsOfNodes,
   duplicateNodes,
   frameAround,
   nextCollapsed,
@@ -185,11 +195,15 @@ function CanvasSurface(): JSX.Element | null {
   const [flowNodes, setFlowNodesState] = useState<KartaFlowNode[]>([]);
   const [flowEdges, setFlowEdgesState] = useState<KartaFlowEdge[]>([]);
   const [connectMenu, setConnectMenu] = useState<ConnectMenuState | null>(null);
+  /** Where the selection menu was opened, in the wrapper's own pixels. */
+  const [selectionMenu, setSelectionMenu] = useState<XYPosition | null>(null);
 
   // Escape reads the menu without listing it as a dependency, so the keyboard
   // handlers are built once instead of once per frame.
   const connectMenuRef = useRef<ConnectMenuState | null>(null);
   connectMenuRef.current = connectMenu;
+  const selectionMenuRef = useRef<XYPosition | null>(null);
+  selectionMenuRef.current = selectionMenu;
 
   const { screenToFlowPosition, flowToScreenPosition, fitView, zoomTo, getViewport } = useReactFlow<
     KartaFlowNode,
@@ -519,6 +533,7 @@ function CanvasSurface(): JSX.Element | null {
 
   const onPaneClick = useCallback((): void => {
     setConnectMenu(null);
+    setSelectionMenu(null);
     focusSurface();
   }, [focusSurface]);
 
@@ -766,6 +781,120 @@ function CanvasSurface(): JSX.Element | null {
       });
   }, [selection]);
 
+  /**
+   * Locking is spec 5.2's own field, honoured everywhere on the canvas — a
+   * locked node refuses a drag, a resize, a colour and a delete — and until the
+   * menu existed nothing in the product could write it.
+   */
+  const setLocked = useCallback(
+    (locked: boolean): void => {
+      const wanted = selection.nodes();
+      if (wanted.size === 0) return;
+      const verb = locked ? 'Lock' : 'Unlock';
+      useBoardStore.getState().mutate(wanted.size === 1 ? `${verb} node` : `${verb} nodes`, (d) => {
+        for (const node of d.nodes) if (wanted.has(node.id)) node.locked = locked;
+      });
+    },
+    [selection],
+  );
+
+  /* --- the selection menu (spec 5.2, spec 9) ----------------------------- */
+
+  const selectionFacts = useCallback((): SelectionFacts => {
+    const current = useBoardStore.getState().doc;
+    if (!current) return NO_SELECTION;
+    return readSelectionFacts(current.nodes, selection.nodes(), selection.edges().size);
+  }, [selection]);
+
+  /** Opened at a point in viewport pixels — a pointer, or a button's corner. */
+  const openSelectionMenu = useCallback((screen: XYPosition): void => {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    setConnectMenu(null);
+    setSelectionMenu({ x: screen.x - (rect?.left ?? 0), y: screen.y - (rect?.top ?? 0) });
+  }, []);
+
+  const closeSelectionMenu = useCallback((): void => {
+    setSelectionMenu(null);
+    // The caret came from the canvas and goes back to it: the menu is unmounting
+    // under the focused item, and focus left on nothing is focus on the body.
+    wrapperRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const onNodeContextMenu: NodeMouseHandler<KartaFlowNode> = useCallback(
+    (event, node) => {
+      event.preventDefault();
+      // Right-clicking outside the selection means "this one", the way it does
+      // everywhere else — otherwise the menu would act on a crowd the user
+      // cannot see they are still holding.
+      if (!selection.nodes().has(node.id)) selectNodes([node.id]);
+      openSelectionMenu({ x: event.clientX, y: event.clientY });
+    },
+    [openSelectionMenu, selectNodes, selection],
+  );
+
+  /**
+   * The context-menu key fires `contextmenu` at whatever holds focus, which on
+   * this surface is the wrapper itself — the key has already opened our own
+   * menu on `keydown`, and the browser's must not open on top of it. A pointer
+   * never reaches here with the wrapper as its target: the pane and the nodes
+   * answer those, and both prevent it themselves.
+   */
+  const onWrapperContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>): void => {
+    if (event.target === event.currentTarget) event.preventDefault();
+  }, []);
+
+  /**
+   * The menu without a pointer: the context-menu key, and `Shift+F10` for the
+   * keyboards that lack one. It opens on the corner of the selection's own box,
+   * which is where the button on the box sits.
+   */
+  const onSurfaceKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+      const wanted = event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey);
+      if (!wanted || isEditableTarget(event.target)) return;
+
+      const current = useBoardStore.getState().doc;
+      const selected = selection.nodes();
+      if (!current || selected.size === 0) return;
+      const bounds = boundsOfNodes(current.nodes.filter((node) => selected.has(node.id)));
+      if (!bounds) return;
+
+      event.preventDefault();
+      openSelectionMenu(flowToScreenPosition({ x: bounds.x + bounds.w, y: bounds.y }));
+    },
+    [flowToScreenPosition, openSelectionMenu, selection],
+  );
+
+  /**
+   * The commands, handed to the menu and to the toolbar exactly as the keyboard
+   * gets them. Nothing downstream reimplements one — `Ctrl+G` and *Group into a
+   * frame* are the same call, so they cannot come to mean different things.
+   */
+  const selectionOps = useMemo<SelectionOps>(
+    () => ({
+      facts: selectionFacts,
+      selectedNodeIds: () => selection.nodeIds(),
+      openMenuAt: openSelectionMenu,
+      group: groupSelection,
+      extract,
+      duplicate: duplicateSelection,
+      applyColor,
+      setLocked,
+      remove: removeSelection,
+    }),
+    [
+      applyColor,
+      duplicateSelection,
+      extract,
+      groupSelection,
+      openSelectionMenu,
+      removeSelection,
+      selection,
+      selectionFacts,
+      setLocked,
+    ],
+  );
+
   const shortcuts = useMemo<CanvasShortcutHandlers>(
     () => ({
       newCard: () => createNode({ kind: 'card' }, centreOfView()),
@@ -790,6 +919,12 @@ function CanvasSurface(): JSX.Element | null {
       escape: () => {
         const ui = useUiStore.getState();
         if (ui.editorNodeId !== null || ui.dialog !== null) return; // the shell owns those
+        // Both menus stop Escape at the window before it reaches here; these
+        // branches are what happens if one is open while the caret is not in it.
+        if (selectionMenuRef.current) {
+          setSelectionMenu(null);
+          return;
+        }
         if (connectMenuRef.current) {
           setConnectMenu(null);
           return;
@@ -854,6 +989,7 @@ function CanvasSurface(): JSX.Element | null {
       <>
         <EmptyCanvasHint />
         <Palette />
+        <SelectionAffordance />
         <CanvasToolbar />
       </>
     ),
@@ -869,83 +1005,96 @@ function CanvasSurface(): JSX.Element | null {
      * The tracker, handed to the two affordances that belong to one item — the
      * resize handles and the arrow editor. They read a count out of it and
      * mount nothing while a marquee is holding a crowd.
+     *
+     * Beneath it, the same selection as a set of *commands*: the menu on the
+     * selection and the toolbar's menu both name operations that live here, and
+     * naming them is all they do.
      */
     <SelectionScope.Provider value={selection}>
-      <NodeCreatedContext.Provider value={selectCreated}>
-        <div
-          ref={wrapperRef}
-          className="karta-canvas"
-          tabIndex={-1}
-          onCopy={onCopy}
-          onPaste={onPaste}
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-          onPointerDownCapture={focusSurface}
-        >
-          <ReactFlow<KartaFlowNode, KartaFlowEdge>
-            nodes={flowNodes}
-            edges={flowEdges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onNodeDragStart={onNodeDragStart}
-            onNodeDrag={onNodeDrag}
-            onNodeDragStop={onNodeDragStop}
-            onNodeDoubleClick={onNodeDoubleClick}
-            onConnectStart={onConnectStart}
-            onConnectEnd={onConnectEnd}
-            onPaneClick={onPaneClick}
-            onPaneContextMenu={onPaneContextMenu}
-            onDoubleClick={onPaneDoubleClick}
-            onMoveEnd={onMoveEnd}
-            isValidConnection={isValidConnection}
-            defaultViewport={openingViewport.current ?? doc.viewport}
-            minZoom={0.1}
-            maxZoom={2.5}
-            snapToGrid={!altPressed}
-            snapGrid={SNAP_GRID}
-            onlyRenderVisibleElements
-            connectionMode={ConnectionMode.Loose}
-            connectionRadius={28}
-            connectionDragThreshold={CONNECT_DRAG_THRESHOLD}
-            zoomOnScroll={false}
-            zoomOnPinch
-            zoomOnDoubleClick={false}
-            zoomActivationKeyCode={ZOOM_KEYS}
-            panOnScroll
-            panOnDrag={PAN_ON_DRAG}
-            panActivationKeyCode="Space"
-            selectionOnDrag
-            selectionMode={SelectionMode.Partial}
-            selectionKeyCode="Shift"
-            multiSelectionKeyCode={MULTI_SELECT_KEYS}
-            deleteKeyCode={null}
-            nodeDragThreshold={2}
-            elevateNodesOnSelect
-            proOptions={PRO_OPTIONS}
+      <SelectionOpsContext.Provider value={selectionOps}>
+        <NodeCreatedContext.Provider value={selectCreated}>
+          <div
+            ref={wrapperRef}
+            className="karta-canvas"
+            tabIndex={-1}
+            onCopy={onCopy}
+            onPaste={onPaste}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            onKeyDown={onSurfaceKeyDown}
+            onContextMenu={onWrapperContextMenu}
+            onPointerDownCapture={focusSurface}
           >
-            {chrome}
-          </ReactFlow>
+            <ReactFlow<KartaFlowNode, KartaFlowEdge>
+              nodes={flowNodes}
+              edges={flowEdges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeDragStart={onNodeDragStart}
+              onNodeDrag={onNodeDrag}
+              onNodeDragStop={onNodeDragStop}
+              onNodeDoubleClick={onNodeDoubleClick}
+              onConnectStart={onConnectStart}
+              onConnectEnd={onConnectEnd}
+              onPaneClick={onPaneClick}
+              onPaneContextMenu={onPaneContextMenu}
+              onNodeContextMenu={onNodeContextMenu}
+              onDoubleClick={onPaneDoubleClick}
+              onMoveEnd={onMoveEnd}
+              isValidConnection={isValidConnection}
+              defaultViewport={openingViewport.current ?? doc.viewport}
+              minZoom={0.1}
+              maxZoom={2.5}
+              snapToGrid={!altPressed}
+              snapGrid={SNAP_GRID}
+              onlyRenderVisibleElements
+              connectionMode={ConnectionMode.Loose}
+              connectionRadius={28}
+              connectionDragThreshold={CONNECT_DRAG_THRESHOLD}
+              zoomOnScroll={false}
+              zoomOnPinch
+              zoomOnDoubleClick={false}
+              zoomActivationKeyCode={ZOOM_KEYS}
+              panOnScroll
+              panOnDrag={PAN_ON_DRAG}
+              panActivationKeyCode="Space"
+              selectionOnDrag
+              selectionMode={SelectionMode.Partial}
+              selectionKeyCode="Shift"
+              multiSelectionKeyCode={MULTI_SELECT_KEYS}
+              deleteKeyCode={null}
+              nodeDragThreshold={2}
+              elevateNodesOnSelect
+              proOptions={PRO_OPTIONS}
+            >
+              {chrome}
+            </ReactFlow>
 
-          {furniture}
+            {furniture}
 
-          <div className="karta-dock" aria-live="polite">
-            {selectionLabel && <p className="karta-dock-chip">{selectionLabel}</p>}
-            {imageDrop.uploading && <p className="karta-dock-chip">Adding image…</p>}
+            <div className="karta-dock" aria-live="polite">
+              {selectionLabel && <p className="karta-dock-chip">{selectionLabel}</p>}
+              {imageDrop.uploading && <p className="karta-dock-chip">Adding image…</p>}
+            </div>
+
+            {connectMenu && (
+              <ConnectMenu
+                x={connectMenu.x}
+                y={connectMenu.y}
+                title={connectMenu.from === null ? 'Add to the board' : 'Add and connect'}
+                onPick={pickFromConnectMenu}
+                onCancel={closeConnectMenu}
+              />
+            )}
+
+            {selectionMenu && (
+              <SelectionMenu x={selectionMenu.x} y={selectionMenu.y} onClose={closeSelectionMenu} />
+            )}
           </div>
-
-          {connectMenu && (
-            <ConnectMenu
-              x={connectMenu.x}
-              y={connectMenu.y}
-              title={connectMenu.from === null ? 'Add to the board' : 'Add and connect'}
-              onPick={pickFromConnectMenu}
-              onCancel={closeConnectMenu}
-            />
-          )}
-        </div>
-      </NodeCreatedContext.Provider>
+        </NodeCreatedContext.Provider>
+      </SelectionOpsContext.Provider>
     </SelectionScope.Provider>
   );
 }

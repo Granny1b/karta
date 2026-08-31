@@ -10,6 +10,8 @@
 
 import {
   DEFAULT_TEXT_SIZE,
+  MAX_TEXT_SIZE,
+  MIN_TEXT_SIZE,
   isCardNode,
   isNoteNode,
   isShapeNode,
@@ -224,6 +226,12 @@ export function exportPortable(doc: BoardDoc): string {
  * The prompt to hand a language model. It carries the whole contract: the
  * schema, one worked example, and the instruction to answer with JSON only.
  * Kept deliberately short — a long prompt is a prompt nobody pastes.
+ *
+ * Every key it advertises has to be one the importer reads *and* the app can
+ * set and hand back on export. A key the app drops is JSON that silently
+ * disappears: the model did as it was told, and half the answer never reaches
+ * the board. `exporter.test.ts` parses this text and runs it through the real
+ * validator for exactly that reason — a claim here is checked, not believed.
  */
 export const AI_PROMPT_TEMPLATE = `You are helping me plan work on a visual board called Karta.
 
@@ -249,8 +257,8 @@ Format:
     }
   ],
   "notes":  [ { "key": "n1", "text": "A sticky note on the canvas", "color": "straw" } ],
-  "texts":  [ { "text": "Section heading", "fontSize": 32, "weight": "bold" } ],
-  "shapes": [ { "key": "s1", "shape": "diamond", "label": "Ready?", "fill": "blue" } ],
+  "texts":  [ { "text": "Section heading", "fontSize": 32, "weight": "bold", "align": "left" } ],
+  "shapes": [ { "key": "s1", "shape": "diamond", "label": "Ready?", "fill": "blue", "stroke": "slate" } ],
   "edges": [
     { "from": "a", "to": "Other card title", "semantic": "depends", "label": "needs" }
   ]
@@ -258,14 +266,15 @@ Format:
 
 Rules:
 - Only "title" is required on a card. Everything else is optional.
-- "from" and "to" are card keys, or exact card titles.
+- "from" and "to" are a "key" from any card, note, text or shape, or a card title.
 - A "key" must be unique across cards, notes, texts and shapes.
 - "semantic" is one of: relates, depends, blocks, derives. Default is relates.
 - "shape" is one of: rectangle, roundedRect, ellipse, diamond, triangle, hexagon,
   cylinder, parallelogram, cloud, document, process, callout.
+- "fontSize" is ${MIN_TEXT_SIZE} to ${MAX_TEXT_SIZE}; "align" is left, center or right; "weight" is regular or bold.
 - "texts" are headings laid on the canvas and "shapes" are flowchart boxes;
   leave both out unless I ask for a diagram.
-- Leave positions out; Karta lays the cards out in a grid.
+- Leave positions out; Karta lays everything out in a grid.
 - Use 5 to 15 cards unless I ask for more. Titles under 60 characters.
 
 Example answer:

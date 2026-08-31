@@ -306,7 +306,7 @@ function ShapeNodeView({ data, selected, dragging, width, height }: NodeProps<Sh
           // clipped; the shape is drawn to the box, so it is let through.
           style={{
             overflow: 'visible',
-            filter: dragging === true ? 'drop-shadow(0 8px 14px rgb(0 0 0 / 18%))' : undefined,
+            filter: dragging === true ? 'drop-shadow(var(--shadow-drag))' : undefined,
           }}
           aria-hidden
         >

@@ -18,6 +18,11 @@ import {
   type Id,
   type Iso,
   type NoteNode,
+  capNodeText,
+  capText,
+  MAX_TITLE,
+  MAX_CARD_BODY,
+  MAX_NODE_TEXT,
 } from '@/domain/board';
 import { formatDateTime } from '@/lib/format';
 import { colorValue } from '@/lib/colors';
@@ -124,7 +129,11 @@ function NoteEditor({ note, onClose }: { note: NoteNode; onClose(): void }): JSX
   const removeNodes = useBoardStore((s) => s.removeNodes);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const text = useDraft(note.text, (value) => updateNode(note.id, { text: value }, 'Edit note'), 700);
+  const text = useDraft(
+    note.text,
+    (value) => updateNode(note.id, { text: capNodeText(value) }, 'Edit note'),
+    700,
+  );
 
   const deleteNote = (): void => {
     removeNodes([note.id]);
@@ -155,6 +164,7 @@ function NoteEditor({ note, onClose }: { note: NoteNode; onClose(): void }): JSX
         <Field label="Text">
           <textarea
             value={text.value}
+            maxLength={MAX_NODE_TEXT}
             onChange={(e) => text.setValue(e.target.value)}
             onBlur={text.flush}
             readOnly={note.locked}
@@ -220,8 +230,14 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
   const [preview, setPreview] = useState(() => card.body.trim().length > 0);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const title = useDraft(card.title, (value) => updateNode(card.id, { title: value }, 'Edit title'));
-  const body = useDraft(card.body, (value) => updateNode(card.id, { body: value }, 'Edit body'), 700);
+  const title = useDraft(card.title, (value) =>
+    updateNode(card.id, { title: capText(value, MAX_TITLE) }, 'Edit title'),
+  );
+  const body = useDraft(
+    card.body,
+    (value) => updateNode(card.id, { body: capText(value, MAX_CARD_BODY) }, 'Edit body'),
+    700,
+  );
 
   const statuses = useMemo(() => [...doc.statuses].sort((a, b) => a.order - b.order), [doc.statuses]);
   const cover = card.coverMediaId ? (doc.media.find((m) => m.id === card.coverMediaId) ?? null) : null;
@@ -280,6 +296,7 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
         />
         <input
           value={title.value}
+          maxLength={MAX_TITLE}
           onChange={(e) => title.setValue(e.target.value)}
           onBlur={title.flush}
           placeholder="Card title"
@@ -340,6 +357,7 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
           ) : (
             <textarea
               value={body.value}
+              maxLength={MAX_CARD_BODY}
               onChange={(e) => body.setValue(e.target.value)}
               onBlur={body.flush}
               rows={8}

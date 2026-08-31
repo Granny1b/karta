@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -107,6 +108,33 @@ describe('the token file', () => {
 
     for (const rel of CALLERS) {
       expect(source[rel], `${rel} draws the drag shadow itself`).not.toMatch(/10px\s+24px/);
+    }
+  });
+
+  /**
+   * The stylesheet guards above only read .css. A component can still lift an
+   * element with an inline `drop-shadow(...)` or a raw `rgb(0 0 0 / n%)`, which
+   * is how ShapeNode ended up dragging at the light depth on a dark canvas and
+   * a different height from every card beside it. The token carries the night
+   * depth; a literal cannot.
+   */
+  it('is the only place a shadow colour is written, components included', () => {
+    const srcDir = fileURLToPath(new URL('../../src', import.meta.url));
+    const components = readdirSync(srcDir, { recursive: true, encoding: 'utf8' })
+      .filter((rel) => rel.endsWith('.tsx') && !rel.endsWith('.test.tsx'))
+      .map((rel) => `src/${rel.split(sep).join('/')}`);
+
+    expect(components.length, 'found no components to scan').toBeGreaterThan(10);
+
+    for (const rel of components) {
+      const text = read(rel);
+      const shadows = text.match(/drop-shadow\(([^)]*\)?[^)]*)\)/g) ?? [];
+      for (const shadow of shadows) {
+        expect(shadow, `${rel} hardcodes a drop shadow instead of var(--shadow-drag)`).toMatch(
+          /var\(--/,
+        );
+      }
+      expect(text, `${rel} writes a raw shadow colour`).not.toMatch(/rgb\(0 0 0 \/\s*\d+%\)/);
     }
   });
 });
