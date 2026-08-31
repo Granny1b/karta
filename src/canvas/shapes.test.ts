@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SHAPE_KINDS } from '@/domain/board';
-import { SHAPE_GEOMETRY, SHAPE_LABEL, SHAPE_ORDER } from '@/canvas/shapes';
+import { SHAPE_GEOMETRY, SHAPE_LABEL, SHAPE_ORDER, drawnSize } from '@/canvas/shapes';
 
 /* ------------------------------------------------------------------ *
  * A minimal SVG path reader — enough to prove the generators emit real
@@ -252,5 +252,43 @@ describe('the palette vocabulary', () => {
       expect(label[0]).toBe(label[0]?.toUpperCase());
       expect(label.slice(1)).toBe(label.slice(1).toLowerCase());
     }
+  });
+});
+
+describe('drawnSize', () => {
+  const size = { w: 200, h: 100 };
+
+  it('draws to the live box while a resize handle is being dragged', () => {
+    // React Flow reports the drag box; the document still holds the old one.
+    expect(drawnSize(360, 140, size)).toEqual({ w: 360, h: 140 });
+  });
+
+  it('falls back to the document, per axis, before React Flow has a box', () => {
+    expect(drawnSize(undefined, undefined, size)).toEqual({ w: 200, h: 100 });
+    expect(drawnSize(360, undefined, size)).toEqual({ w: 360, h: 100 });
+    expect(drawnSize(undefined, 140, size)).toEqual({ w: 200, h: 140 });
+  });
+
+  it('never hands a generator a box it cannot draw', () => {
+    expect(drawnSize(0, -12, size)).toEqual({ w: 1, h: 1 });
+    expect(drawnSize(Number.NaN, Number.POSITIVE_INFINITY, size)).toEqual({ w: 1, h: 1 });
+  });
+
+  it('redraws the silhouette rather than stretching it', () => {
+    // The contract at the top of the file, through the path the node takes: a
+    // cylinder dragged to twice its width keeps the lip it had, where scaling a
+    // drawing of the old box would have doubled it.
+    const dragged = drawnSize(400, 100, size);
+    // The lip is the `ry` the outline starts at: `M0 <ry>A<rx> <ry> ...`.
+    const lipOf = (w: number, h: number): number =>
+      Number(/^M0 ([\d.]+)A/.exec(SHAPE_GEOMETRY.cylinder.path(w, h))?.[1]);
+
+    expect(SHAPE_GEOMETRY.cylinder.path(dragged.w, dragged.h)).toBe(
+      SHAPE_GEOMETRY.cylinder.path(400, 100),
+    );
+    expect(lipOf(dragged.w, dragged.h)).toBe(lipOf(size.w, size.h));
+    expect(SHAPE_GEOMETRY.cylinder.path(dragged.w, dragged.h)).not.toBe(
+      SHAPE_GEOMETRY.cylinder.path(size.w, size.h),
+    );
   });
 });

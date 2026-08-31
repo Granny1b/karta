@@ -139,10 +139,16 @@
   --select-line: color-mix(in srgb, var(--focus) 70%, transparent);
 
   /* --- motion -------------------------------------------------------------- */
-  /* Motion answers the action and nothing else (8.3), so there are two speeds. */
+  /*
+   * Motion answers the action and nothing else (8.3), so there are two speeds
+   * and no easing curve. Nothing on this board moves — no entrance, no hover
+   * lift — so every transition here is a colour or an opacity crossing, and a
+   * crossing that eases is read as lag rather than as an answer. `linear` is
+   * written at every call site because it is the shape of the motion, not a
+   * default nobody chose.
+   */
   --dur-fast: 90ms;
   --dur-base: 140ms;
-  --ease-out: cubic-bezier(0.2, 0, 0, 1);
 
   /* --- layout -------------------------------------------------------------- */
   --panel-w:   380px;

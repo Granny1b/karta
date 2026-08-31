@@ -89,6 +89,7 @@ import {
   withSelectionFlags,
 } from '@/canvas/useSelection';
 import { useCanvasShortcuts, type CanvasShortcutHandlers } from '@/canvas/useCanvasShortcuts';
+import { SelectionScope } from '@/canvas/soleSelection';
 import type { KartaFlowEdge, KartaFlowNode } from '@/canvas/types';
 import '@xyflow/react/dist/style.css';
 import '@/styles/canvas-chrome.css';
@@ -864,81 +865,88 @@ function CanvasSurface(): JSX.Element | null {
   if (!doc) return null;
 
   return (
-    <NodeCreatedContext.Provider value={selectCreated}>
-      <div
-        ref={wrapperRef}
-        className="karta-canvas"
-        tabIndex={-1}
-        onCopy={onCopy}
-        onPaste={onPaste}
-        onDrop={onDrop}
-        onDragOver={onDragOver}
-        onPointerDownCapture={focusSurface}
-      >
-        <ReactFlow<KartaFlowNode, KartaFlowEdge>
-          nodes={flowNodes}
-          edges={flowEdges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onNodeDragStart={onNodeDragStart}
-          onNodeDrag={onNodeDrag}
-          onNodeDragStop={onNodeDragStop}
-          onNodeDoubleClick={onNodeDoubleClick}
-          onConnectStart={onConnectStart}
-          onConnectEnd={onConnectEnd}
-          onPaneClick={onPaneClick}
-          onPaneContextMenu={onPaneContextMenu}
-          onDoubleClick={onPaneDoubleClick}
-          onMoveEnd={onMoveEnd}
-          isValidConnection={isValidConnection}
-          defaultViewport={openingViewport.current ?? doc.viewport}
-          minZoom={0.1}
-          maxZoom={2.5}
-          snapToGrid={!altPressed}
-          snapGrid={SNAP_GRID}
-          onlyRenderVisibleElements
-          connectionMode={ConnectionMode.Loose}
-          connectionRadius={28}
-          connectionDragThreshold={CONNECT_DRAG_THRESHOLD}
-          zoomOnScroll={false}
-          zoomOnPinch
-          zoomOnDoubleClick={false}
-          zoomActivationKeyCode={ZOOM_KEYS}
-          panOnScroll
-          panOnDrag={PAN_ON_DRAG}
-          panActivationKeyCode="Space"
-          selectionOnDrag
-          selectionMode={SelectionMode.Partial}
-          selectionKeyCode="Shift"
-          multiSelectionKeyCode={MULTI_SELECT_KEYS}
-          deleteKeyCode={null}
-          nodeDragThreshold={2}
-          elevateNodesOnSelect
-          proOptions={PRO_OPTIONS}
+    /*
+     * The tracker, handed to the two affordances that belong to one item — the
+     * resize handles and the arrow editor. They read a count out of it and
+     * mount nothing while a marquee is holding a crowd.
+     */
+    <SelectionScope.Provider value={selection}>
+      <NodeCreatedContext.Provider value={selectCreated}>
+        <div
+          ref={wrapperRef}
+          className="karta-canvas"
+          tabIndex={-1}
+          onCopy={onCopy}
+          onPaste={onPaste}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          onPointerDownCapture={focusSurface}
         >
-          {chrome}
-        </ReactFlow>
+          <ReactFlow<KartaFlowNode, KartaFlowEdge>
+            nodes={flowNodes}
+            edges={flowEdges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeDragStart={onNodeDragStart}
+            onNodeDrag={onNodeDrag}
+            onNodeDragStop={onNodeDragStop}
+            onNodeDoubleClick={onNodeDoubleClick}
+            onConnectStart={onConnectStart}
+            onConnectEnd={onConnectEnd}
+            onPaneClick={onPaneClick}
+            onPaneContextMenu={onPaneContextMenu}
+            onDoubleClick={onPaneDoubleClick}
+            onMoveEnd={onMoveEnd}
+            isValidConnection={isValidConnection}
+            defaultViewport={openingViewport.current ?? doc.viewport}
+            minZoom={0.1}
+            maxZoom={2.5}
+            snapToGrid={!altPressed}
+            snapGrid={SNAP_GRID}
+            onlyRenderVisibleElements
+            connectionMode={ConnectionMode.Loose}
+            connectionRadius={28}
+            connectionDragThreshold={CONNECT_DRAG_THRESHOLD}
+            zoomOnScroll={false}
+            zoomOnPinch
+            zoomOnDoubleClick={false}
+            zoomActivationKeyCode={ZOOM_KEYS}
+            panOnScroll
+            panOnDrag={PAN_ON_DRAG}
+            panActivationKeyCode="Space"
+            selectionOnDrag
+            selectionMode={SelectionMode.Partial}
+            selectionKeyCode="Shift"
+            multiSelectionKeyCode={MULTI_SELECT_KEYS}
+            deleteKeyCode={null}
+            nodeDragThreshold={2}
+            elevateNodesOnSelect
+            proOptions={PRO_OPTIONS}
+          >
+            {chrome}
+          </ReactFlow>
 
-        {furniture}
+          {furniture}
 
-        <div className="karta-dock" aria-live="polite">
-          {selectionLabel && <p className="karta-dock-chip">{selectionLabel}</p>}
-          {imageDrop.uploading && <p className="karta-dock-chip">Adding image…</p>}
+          <div className="karta-dock" aria-live="polite">
+            {selectionLabel && <p className="karta-dock-chip">{selectionLabel}</p>}
+            {imageDrop.uploading && <p className="karta-dock-chip">Adding image…</p>}
+          </div>
+
+          {connectMenu && (
+            <ConnectMenu
+              x={connectMenu.x}
+              y={connectMenu.y}
+              title={connectMenu.from === null ? 'Add to the board' : 'Add and connect'}
+              onPick={pickFromConnectMenu}
+              onCancel={closeConnectMenu}
+            />
+          )}
         </div>
-
-        {connectMenu && (
-          <ConnectMenu
-            x={connectMenu.x}
-            y={connectMenu.y}
-            title={connectMenu.from === null ? 'Add to the board' : 'Add and connect'}
-            onPick={pickFromConnectMenu}
-            onCancel={closeConnectMenu}
-          />
-        )}
-      </div>
-    </NodeCreatedContext.Provider>
+      </NodeCreatedContext.Provider>
+    </SelectionScope.Provider>
   );
 }
 

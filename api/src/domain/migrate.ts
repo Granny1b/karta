@@ -15,6 +15,11 @@
  * The loop then walks any stored document forward one version at a time.
  * Nothing else changes: `migrate` already throws on versions from the future,
  * which is the correct behaviour when an old deployment meets a new document.
+ *
+ * The write path shares the walk through {@link upgradeToCurrent} rather than
+ * demanding the current version outright. A client holds documents too — in
+ * its write-ahead log, across a deploy — and an API that can read a version it
+ * refuses to be handed back turns that log into a permanent save failure.
  */
 
 import type { BoardDoc } from '../../../src/domain/board.js';
@@ -44,21 +49,22 @@ const numberOr = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 
 /**
- * Bring a stored document up to the current schema version.
+ * Walk a document forward to the current schema and stamp the version, without
+ * filling anything in.
  *
- * Throws when the input is not an object or carries a version this build does
- * not understand. Missing optional collections are filled in defensively: a
- * document written before `media` existed, or hand-edited in the portal, must
- * not crash a read.
+ * This is the tolerance the read and the write path share: whatever versions
+ * this build can migrate, it can also be handed. `migrate` calls it and then
+ * fills in what storage may be missing; `validate.ts` calls it and then checks
+ * the result strictly, so a client document is upgraded before it is judged
+ * and never judged against a version it was not written under.
+ *
+ * Throws when the version is missing, is not a whole number, or comes from a
+ * deployment newer than this one.
  */
-export function migrate(raw: unknown): BoardDoc {
-  if (!isRecord(raw)) {
-    throw new Error('Stored board document is not a JSON object.');
-  }
-
+export function upgradeToCurrent(raw: RawDoc): RawDoc {
   const declared = raw['schemaVersion'];
   if (typeof declared !== 'number' || !Number.isInteger(declared) || declared < 1) {
-    throw new Error(`Stored board document has an invalid schemaVersion: ${JSON.stringify(declared)}`);
+    throw new Error(`Board document has an invalid schemaVersion: ${JSON.stringify(declared)}`);
   }
   if (declared > SCHEMA_VERSION) {
     throw new Error(
@@ -75,7 +81,25 @@ export function migrate(raw: unknown): BoardDoc {
     doc = step(doc);
   }
 
-  return normalise(doc);
+  // A step may legitimately be the identity, so the stamp is applied here and
+  // not left to the steps. The copy also keeps the caller's input untouched.
+  return { ...doc, schemaVersion: SCHEMA_VERSION };
+}
+
+/**
+ * Bring a stored document up to the current schema version.
+ *
+ * Throws when the input is not an object or carries a version this build does
+ * not understand. Missing optional collections are filled in defensively: a
+ * document written before `media` existed, or hand-edited in the portal, must
+ * not crash a read.
+ */
+export function migrate(raw: unknown): BoardDoc {
+  if (!isRecord(raw)) {
+    throw new Error('Stored board document is not a JSON object.');
+  }
+
+  return normalise(upgradeToCurrent(raw));
 }
 
 /**

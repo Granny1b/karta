@@ -28,6 +28,26 @@ export interface ShapeGeometry {
   labelInset(w: number, h: number): Rect;
 }
 
+/**
+ * The box a shape is drawn to, which is not always the box the document holds.
+ *
+ * React Flow reports a node's live size while a resize handle is being dragged;
+ * the document only hears about it when the gesture ends, so one resize is one
+ * undo entry (spec 10, phase 1). A shape drawn to the document size would
+ * therefore spend the whole drag being *scaled* by the SVG viewport rather than
+ * redrawn — a cylinder whose lip flattens into an oval, a rounded rectangle
+ * whose 10 px corner smears — which is exactly what the geometry below exists
+ * to prevent. So the live box wins whenever there is one, and the document size
+ * is what a node not yet measured is drawn at.
+ */
+export function drawnSize(
+  width: number | undefined,
+  height: number | undefined,
+  size: { w: number; h: number },
+): { w: number; h: number } {
+  return { w: dim(width ?? size.w), h: dim(height ?? size.h) };
+}
+
 /* ------------------------------------------------------------------ *
  * Primitives
  * ------------------------------------------------------------------ */

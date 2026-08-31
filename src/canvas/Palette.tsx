@@ -64,17 +64,32 @@ export interface PaletteEntry {
 }
 
 /** The three things a blank board is usually started with. */
-const CARD_ENTRIES: readonly PaletteEntry[] = [
+export const CARD_ENTRIES: readonly PaletteEntry[] = [
   { choice: { kind: 'card' }, label: 'Card', shortcut: 'N' },
   { choice: { kind: 'note' }, label: 'Note', shortcut: 'Shift+N' },
-  { choice: { kind: 'text' }, label: 'Text', shortcut: null },
+  { choice: { kind: 'text' }, label: 'Text', shortcut: 'T' },
 ];
 
-const SHAPE_ENTRIES: readonly PaletteEntry[] = SHAPE_ORDER.map((shape) => ({
+/*
+ * No shape carries a key of its own, because `S` does not place one: there are
+ * twelve, and it opens the picker to ask which (spec 9, keys.ts). So the hint
+ * belongs to the group heading, where it says what the key actually does,
+ * instead of being repeated as a promise on twelve cells that would not keep it.
+ */
+export const SHAPE_ENTRIES: readonly PaletteEntry[] = SHAPE_ORDER.map((shape) => ({
   choice: { kind: 'shape', shape },
   label: SHAPE_LABEL[shape],
   shortcut: null,
 }));
+
+/** A key that belongs to a whole group rather than to one item. */
+export interface GroupKey {
+  key: string;
+  /** What pressing it does, in the voice the shortcuts dialog uses. */
+  does: string;
+}
+
+export const SHAPE_KEY: GroupKey = { key: 'S', does: 'Pick a shape' };
 
 /** Name first, then the key — the order the shortcuts dialog reads in. */
 function entryTitle(entry: PaletteEntry): string {
@@ -382,7 +397,9 @@ export default function Palette(): JSX.Element {
         <hr className="my-2 border-line" />
 
         <div role="group" aria-labelledby={shapesId}>
-          <Caption id={shapesId}>Shapes</Caption>
+          <Caption id={shapesId} groupKey={SHAPE_KEY}>
+            Shapes
+          </Caption>
           <div className="grid grid-cols-4 gap-1">
             {SHAPE_ENTRIES.map((entry, offset) => {
               const index = CARD_ENTRIES.length + offset;
@@ -406,10 +423,29 @@ export default function Palette(): JSX.Element {
   );
 }
 
-function Caption({ id, children }: { id?: string; children: string }): JSX.Element {
+/**
+ * A group heading, and on the right the key that opens the group where there is
+ * one. The name keeps the id, so the group is announced by its name alone and
+ * the key is read as the sentence it is rather than as a stray letter.
+ */
+function Caption({
+  id,
+  groupKey,
+  children,
+}: {
+  id?: string;
+  groupKey?: GroupKey;
+  children: string;
+}): JSX.Element {
   return (
-    <p id={id} className="px-2 pb-1 text-[11px] leading-none text-ink-muted">
-      {children}
+    <p className="flex items-baseline justify-between gap-2 px-2 pb-1 text-[11px] leading-none text-ink-muted">
+      <span id={id}>{children}</span>
+      {groupKey ? (
+        <span title={`${groupKey.does} · ${groupKey.key}`}>
+          <span aria-hidden>{groupKey.key}</span>
+          <span className="sr-only">{`${groupKey.does} · ${groupKey.key}`}</span>
+        </span>
+      ) : null}
     </p>
   );
 }
@@ -448,7 +484,7 @@ export function PaletteMenuItems({ onPick }: { onPick(entry: PaletteEntry): void
 
       <hr className="my-2 border-line" />
 
-      <Caption>Shapes</Caption>
+      <Caption groupKey={SHAPE_KEY}>Shapes</Caption>
       <div className="grid grid-cols-4 gap-1">
         {SHAPE_ENTRIES.map((entry) => (
           <button

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SCHEMA_VERSION } from '../../../src/domain/board.js';
 import { newBoardDoc } from './defaults.js';
-import { migrate } from './migrate.js';
+import { migrate, upgradeToCurrent } from './migrate.js';
 
 const BOARD_ID = '01HZZZZZZZZZZZZZZZZZZZZZZZ';
 
@@ -54,5 +54,28 @@ describe('migrate', () => {
   it('refuses a document with no usable version at all', () => {
     expect(() => migrate({ ...stored(1), schemaVersion: 'two' })).toThrow(/invalid schemaVersion/);
     expect(() => migrate('not a document')).toThrow(/not a JSON object/);
+  });
+});
+
+describe('upgradeToCurrent', () => {
+  it('walks a document forward and stamps it, without filling anything in', () => {
+    // The write path judges what this returns, so it must not invent the
+    // fields a client left out — `normalise` may, `upgradeToCurrent` may not.
+    expect(upgradeToCurrent({ schemaVersion: 1, id: BOARD_ID })).toEqual({
+      schemaVersion: SCHEMA_VERSION,
+      id: BOARD_ID,
+    });
+  });
+
+  it('leaves the document it was handed alone', () => {
+    const before = stored(1);
+    upgradeToCurrent(before);
+    expect(before['schemaVersion']).toBe(1);
+  });
+
+  it('refuses the same versions the read path refuses', () => {
+    expect(() => upgradeToCurrent(stored(SCHEMA_VERSION + 1))).toThrow(/Deploy the newer API/);
+    expect(() => upgradeToCurrent({ ...stored(1), schemaVersion: 0 })).toThrow(/invalid schemaVersion/);
+    expect(() => upgradeToCurrent({})).toThrow(/invalid schemaVersion/);
   });
 });

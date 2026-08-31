@@ -23,9 +23,9 @@ import type {
 } from '../../../src/domain/board.js';
 import {
   MAX_MEDIA_BYTES,
+  MAX_SHAPE_LABEL,
   MAX_TEXT_SIZE,
   MIN_TEXT_SIZE,
-  SCHEMA_VERSION,
   SHAPE_KINDS,
   SIZE_HARD_STOP_BYTES,
   SIZE_WARN_BYTES,
@@ -34,6 +34,7 @@ import {
   TEXT_WEIGHTS,
 } from '../../../src/domain/board.js';
 import { BadRequestError } from './errors.js';
+import { upgradeToCurrent } from './migrate.js';
 import type {
   CreateBoardRequest,
   MediaCommitRequest,
@@ -244,16 +245,36 @@ const MAX_CHECKLIST_TEXT = 2000;
 const MAX_NODE_TEXT = 20000;
 const MAX_RANK = 64;
 
-export function validateBoardDoc(raw: unknown): BoardDocValidation {
+/**
+ * Check a document a client posted, and hand back the version this build
+ * stores.
+ *
+ * The write path is exactly as tolerant as the read path: the input is walked
+ * forward by the same migration steps `migrate` uses, and only then judged.
+ * Demanding the current version outright looks stricter and is in fact a trap
+ * — a client that recovers a document written by the previous deploy (its
+ * write-ahead log survives a release) would have every save it ever makes
+ * refused, with no way out from inside the app. Anything this API can read, it
+ * can be handed back.
+ */
+export function validateBoardDoc(input: unknown): BoardDocValidation {
   const e = new ErrorBag();
 
-  if (!isRecord(raw)) {
+  if (!isRecord(input)) {
     return { ok: false, errors: ['doc: expected a JSON object'], doc: null };
   }
 
-  if (raw['schemaVersion'] !== SCHEMA_VERSION) {
-    e.add('doc.schemaVersion', `expected ${SCHEMA_VERSION}`);
+  let raw: Record<string, unknown>;
+  try {
+    raw = upgradeToCurrent(input);
+  } catch (err) {
+    // A version this build cannot read. Migration steps are total by contract
+    // (see `migrate.ts`), so anything else that lands here is a bug in one —
+    // and it degrades to "this document cannot be read", never to a 500.
+    const reason = err instanceof Error ? err.message : 'unreadable schemaVersion';
+    return { ok: false, errors: [`doc.schemaVersion: ${reason}`], doc: null };
   }
+
   if (!isUlid(raw['id'])) e.add('doc.id', 'expected a ULID');
   if (raw['parentBoardId'] !== null && !isUlid(raw['parentBoardId'])) {
     e.add('doc.parentBoardId', 'expected a ULID or null');
@@ -512,7 +533,10 @@ function checkText(e: ErrorBag, p: string, n: Record<string, unknown>): void {
 
 function checkShape(e: ErrorBag, p: string, n: Record<string, unknown>): void {
   checkEnum(e, `${p}.shape`, n['shape'], SHAPE_KINDS);
-  checkString(e, `${p}.label`, n['label'], MAX_TITLE);
+  // The same number the editor caps its field at, read from the one contract —
+  // a label the client will happily type and the server refuses is a board
+  // that can never be saved again.
+  checkString(e, `${p}.label`, n['label'], MAX_SHAPE_LABEL);
   // Same rule as every other colour field, through the same helper: a hex the
   // client accepts and the server refuses is a board that can never be saved.
   checkColor(e, `${p}.fill`, n['fill']);

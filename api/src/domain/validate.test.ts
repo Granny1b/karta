@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardDoc } from '../../../src/domain/board.js';
+import { MAX_SHAPE_LABEL, SCHEMA_VERSION } from '../../../src/domain/board.js';
 import { newBoardDoc } from './defaults.js';
 import { BadRequestError } from './errors.js';
 import { isSafeMediaPath, parsePutBoardRequest, validateBoardDoc } from './validate.js';
@@ -100,6 +101,9 @@ const SHAPE_NODE = {
   stroke: null,
 };
 
+/** A node kind that already existed under schema version 1. */
+const NOTE_NODE = { ...NODE_BASE, kind: 'note', color: 'straw', text: 'Written under version 1' };
+
 /** The errors reported for a document holding exactly this one node. */
 function nodeErrors(node: Record<string, unknown>): string[] {
   const result = validateBoardDoc({ ...doc(), nodes: [node] });
@@ -145,6 +149,68 @@ describe('validateBoardDoc node kinds', () => {
   it('still rejects a kind it has never heard of', () => {
     expect(nodeErrors({ ...NODE_BASE, kind: 'sticker' })).toContain(
       'doc.nodes[0].kind: expected one of card, image, note, boardLink, group, text, shape',
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Schema versions on the write path
+ * ------------------------------------------------------------------ */
+
+describe('validateBoardDoc schema versions', () => {
+  /** One document, as the deploy before this one wrote it. */
+  const V1: Record<string, unknown> = { ...doc(), schemaVersion: 1, nodes: [NOTE_NODE] };
+  const v1 = (): Record<string, unknown> => structuredClone(V1);
+
+  it('accepts a document from the previous deploy and stores it at the current version', () => {
+    // The blocker this replaces: the write path demanded the current version
+    // while the read path migrated. A client holding a version-1 document —
+    // one restored from its write-ahead log across a release — had every save
+    // it ever made refused, with no way out from inside the app.
+    const result = validateBoardDoc(v1());
+
+    expect(result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.doc.schemaVersion).toBe(SCHEMA_VERSION);
+    // Migrated, not merely restamped: everything the document carried survives.
+    expect(result.doc.nodes).toEqual([NOTE_NODE]);
+    expect({ ...result.doc, schemaVersion: 1 }).toEqual(v1());
+  });
+
+  it('leaves the document the caller sent untouched while upgrading it', () => {
+    const input = v1();
+    validateBoardDoc(input);
+    expect(input['schemaVersion']).toBe(1);
+  });
+
+  it('refuses a version this build cannot read, and says which', () => {
+    const future = validateBoardDoc({ ...doc(), schemaVersion: SCHEMA_VERSION + 1 });
+    expect(future.ok).toBe(false);
+    expect(future.errors[0]).toMatch(/^doc\.schemaVersion: /);
+    expect(future.errors[0]).toMatch(/Deploy the newer API/);
+
+    for (const bad of [undefined, null, '2', 1.5, 0]) {
+      const result = validateBoardDoc({ ...doc(), schemaVersion: bad });
+      expect(result.ok).toBe(false);
+      expect(result.errors[0]).toMatch(/^doc\.schemaVersion: .*invalid schemaVersion/);
+    }
+  });
+
+  it('hands the upgraded document to the PUT handler, not the one that arrived', () => {
+    const parsed = parsePutBoardRequest({ doc: v1(), orphanBlobPaths: [] }, BOARD_ID);
+    expect(parsed.doc.schemaVersion).toBe(SCHEMA_VERSION);
+  });
+});
+
+describe('validateBoardDoc caps', () => {
+  it('accepts a shape label of exactly the length the editor allows', () => {
+    expect(nodeErrors({ ...SHAPE_NODE, label: 'x'.repeat(MAX_SHAPE_LABEL) })).toEqual([]);
+  });
+
+  it('refuses one character more, and names the field', () => {
+    expect(nodeErrors({ ...SHAPE_NODE, label: 'x'.repeat(MAX_SHAPE_LABEL + 1) })).toContain(
+      `doc.nodes[0].label: longer than ${MAX_SHAPE_LABEL} characters`,
     );
   });
 });

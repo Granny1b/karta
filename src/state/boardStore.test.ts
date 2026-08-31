@@ -22,6 +22,8 @@ interface Fake {
   wal: WalEntry | null;
   walWrites: { doc: BoardDoc; etag: string | null }[];
   walClears: number;
+  /** When set, every PUT comes back as a 400 carrying these field errors. */
+  reject: string[] | null;
 }
 
 function seedDoc(): BoardDoc {
@@ -45,6 +47,7 @@ const fake: Fake = {
   wal: null,
   walWrites: [],
   walClears: 0,
+  reject: null,
 };
 
 function resetFake(): void {
@@ -59,6 +62,7 @@ function resetFake(): void {
   fake.wal = null;
   fake.walWrites = [];
   fake.walClears = 0;
+  fake.reject = null;
 }
 
 function releasePuts(): void {
@@ -71,10 +75,10 @@ function releasePuts(): void {
 /** Filled in by the mock factory below, so the store's `instanceof` checks hold. */
 const real: { ApiError: typeof import('@/lib/api').ApiError | null } = { ApiError: null };
 
-function apiError(status: number, message: string): Error {
+function apiError(status: number, message: string, body?: unknown): Error {
   const ApiError = real.ApiError;
   if (!ApiError) throw new Error('the api mock has not been initialised');
-  return new ApiError(status, message);
+  return new ApiError(status, message, body);
 }
 
 const fakeApi = {
@@ -106,6 +110,15 @@ const fakeApi = {
   async putBoard(_id: Id, doc: BoardDoc, ifMatch: string | null): Promise<{ doc: BoardDoc; etag: string }> {
     fake.puts.push({ doc, ifMatch });
     if (fake.hold) await new Promise<void>((resume) => fake.waiting.push(resume));
+    if (fake.reject) {
+      // The shape `api/src/functions/_shared/respond.ts` puts on the wire.
+      throw apiError(400, 'The board document is not valid.', {
+        error: 'The board document is not valid.',
+        code: 'bad_request',
+        message: 'The board document is not valid.',
+        details: fake.reject,
+      });
+    }
     if (ifMatch !== fake.etag) throw apiError(412, 'This board changed somewhere else');
     fake.version += 1;
     fake.clockMs += 1_000;
@@ -392,5 +405,52 @@ describe('createAt', () => {
 
     expect(node?.kind).toBe('text');
     expect(store.getState().doc?.edges).toHaveLength(0);
+  });
+});
+
+describe('a document the server refuses', () => {
+  /** The ui store the freshly imported board store is actually talking to. */
+  async function toasts(): Promise<{ message: string }[]> {
+    const ui = await import('@/state/uiStore');
+    return ui.useUiStore.getState().toasts;
+  }
+
+  it('names the field at fault and does not repeat the toast on every autosave', async () => {
+    const store = await openBoard();
+    fake.reject = ['doc.nodes[0].label: longer than 300 characters'];
+
+    store.getState().updateNode('A', { title: 'Edited' });
+    await vi.advanceTimersByTimeAsync(1_600);
+
+    const error = store.getState().error ?? '';
+    expect(error).toContain('doc.nodes[0].label: longer than 300 characters');
+    expect(error).toContain('Ctrl+Z'); // and the one move that gets out of it
+    expect(store.getState().saveState).toBe('idle');
+    expect(store.getState().dirty).toBe(true); // the work is still here
+    expect(await toasts()).toHaveLength(1);
+
+    // A 400 is the same answer every time, so the next attempt must not shout.
+    store.getState().updateNode('A', { title: 'Edited again' });
+    await vi.advanceTimersByTimeAsync(1_600);
+
+    expect(fake.puts.length).toBe(2);
+    expect(await toasts()).toHaveLength(1);
+  });
+
+  it('saves again as soon as the document is acceptable', async () => {
+    const store = await openBoard();
+    fake.reject = ['doc.nodes[0].label: longer than 300 characters'];
+    store.getState().updateNode('A', { title: 'Edited' });
+    await vi.advanceTimersByTimeAsync(1_600);
+    expect(store.getState().error).not.toBeNull();
+
+    fake.reject = null;
+    store.getState().updateNode('A', { title: 'Shorter' });
+    await vi.advanceTimersByTimeAsync(1_600);
+
+    expect(store.getState().error).toBeNull();
+    expect(store.getState().saveState).toBe('saved');
+    expect(store.getState().dirty).toBe(false);
+    expect(titleOf(fake.doc, 'A')).toBe('Shorter');
   });
 });

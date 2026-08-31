@@ -46,7 +46,9 @@
   background: transparent;
   opacity: 1;
   pointer-events: none;
-  transition: box-shadow 90ms linear, background-color 90ms linear;
+  transition:
+    box-shadow var(--dur-fast) linear,
+    background-color var(--dur-fast) linear;
   clip-path: polygon(
     0 0,
     100% 0,
@@ -99,9 +101,11 @@
   pointer-events: all;
 }
 
+/* The whole node is the target, so the whole node takes the focus wash from
+   `tokens.css` rather than a percentage picked here. */
 .karta-canvas .react-flow__node .react-flow__handle.karta-connect-ring.is-open:hover {
   box-shadow: inset 0 0 0 2px var(--focus);
-  background: color-mix(in srgb, var(--focus) 10%, transparent);
+  background: var(--focus-wash);
 }
 
 /*
@@ -134,7 +138,7 @@
   background: transparent;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 90ms linear;
+  transition: opacity var(--dur-fast) linear;
 }
 
 .karta-canvas .react-flow__node .react-flow__handle.karta-port:hover,
@@ -335,7 +339,7 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   pointer-events: none;
-  transition: stroke-opacity 90ms linear;
+  transition: stroke-opacity var(--dur-fast) linear;
 }
 
 .karta-canvas .react-flow__edge:hover .karta-edge-halo:not(.is-on) {
@@ -388,7 +392,7 @@
 .karta-toolbar-hint {
   margin: -2px 0 0;
   font-size: var(--karta-t-meta);
-  line-height: 1.35;
+  line-height: var(--leading-snug);
   color: var(--ink-muted);
 }
 

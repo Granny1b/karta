@@ -173,6 +173,14 @@ export const SHAPE_KINDS: readonly ShapeKind[] = [
   'callout',
 ];
 
+/**
+ * A shape label is a caption, not a body: one line, two at a push. The number
+ * lives here because both halves have to agree on it — the editor caps its
+ * field at exactly what `api/src/domain/validate.ts` will accept, so no label
+ * a person can type can produce a document the API refuses.
+ */
+export const MAX_SHAPE_LABEL = 300;
+
 export const TEXT_ALIGNS: readonly TextNode['align'][] = ['left', 'center', 'right'];
 export const TEXT_WEIGHTS: readonly TextNode['weight'][] = ['regular', 'bold'];
 
