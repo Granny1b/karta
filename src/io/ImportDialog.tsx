@@ -33,11 +33,18 @@ function parse(text: string): Parsed {
     : { state: 'invalid', errors: result.errors, warnings: result.warnings };
 }
 
+/** `1 card`, `3 cards` — the plural is regular for everything counted here. */
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
 function summaryLine(summary: ImportSummary): string {
   const parts: string[] = [];
-  if (summary.cards > 0) parts.push(`${summary.cards} card${summary.cards === 1 ? '' : 's'}`);
-  if (summary.notes > 0) parts.push(`${summary.notes} note${summary.notes === 1 ? '' : 's'}`);
-  if (summary.edges > 0) parts.push(`${summary.edges} arrow${summary.edges === 1 ? '' : 's'}`);
+  if (summary.cards > 0) parts.push(count(summary.cards, 'card'));
+  if (summary.notes > 0) parts.push(count(summary.notes, 'note'));
+  if (summary.texts > 0) parts.push(count(summary.texts, 'text'));
+  if (summary.shapes > 0) parts.push(count(summary.shapes, 'shape'));
+  if (summary.edges > 0) parts.push(count(summary.edges, 'arrow'));
   const head = parts.length > 0 ? parts.join(', ') : 'nothing new';
 
   const tail: string[] = [];

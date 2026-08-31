@@ -820,8 +820,11 @@ Sentence case everywhere. No tracked-out capitals, no eyebrow labels above headi
 | Key | Action |
 |---|---|
 | Double-click canvas | new card at cursor |
+| Right-click canvas | pick what to add, at cursor |
 | `N` | new card at viewport centre |
 | `Shift+N` | new note |
+| `T` | new text |
+| `S` | pick a shape |
 | `Ctrl+V` | paste image or card |
 | `Enter` (node selected) | open editor panel |
 | `Esc` | close panel / cancel edge draw / clear selection |

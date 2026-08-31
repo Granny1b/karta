@@ -8,6 +8,8 @@ import type {
   ImageNode,
   NodeKind,
   NoteNode,
+  ShapeNode,
+  TextNode,
 } from '@/domain/board';
 
 /**
@@ -24,6 +26,8 @@ export type NoteFlowNode = FlowNode<KartaNodeData<NoteNode>, 'note'>;
 export type ImageFlowNode = FlowNode<KartaNodeData<ImageNode>, 'image'>;
 export type BoardLinkFlowNode = FlowNode<KartaNodeData<BoardLinkNode>, 'boardLink'>;
 export type GroupFlowNode = FlowNode<KartaNodeData<GroupNode>, 'group'>;
+export type TextFlowNode = FlowNode<KartaNodeData<TextNode>, 'text'>;
+export type ShapeFlowNode = FlowNode<KartaNodeData<ShapeNode>, 'shape'>;
 
 export type KartaEdgeData = { edge: BoardEdge };
 export type KartaFlowEdge = FlowEdge<KartaEdgeData, 'semantic'>;

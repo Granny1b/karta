@@ -23,10 +23,15 @@ import type {
 } from '../../../src/domain/board.js';
 import {
   MAX_MEDIA_BYTES,
+  MAX_TEXT_SIZE,
+  MIN_TEXT_SIZE,
   SCHEMA_VERSION,
+  SHAPE_KINDS,
   SIZE_HARD_STOP_BYTES,
   SIZE_WARN_BYTES,
   SIZE_WARN_NODES,
+  TEXT_ALIGNS,
+  TEXT_WEIGHTS,
 } from '../../../src/domain/board.js';
 import { BadRequestError } from './errors.js';
 import type {
@@ -79,6 +84,9 @@ const HANDLES = ['top', 'right', 'bottom', 'left'] as const;
 const SEMANTICS = ['relates', 'depends', 'blocks', 'derives'] as const;
 const ROUTINGS = ['bezier', 'smoothstep', 'straight'] as const;
 const FITS = ['contain', 'cover'] as const;
+
+/** The node kinds this build understands, for the error a bad `kind` produces. */
+const NODE_KINDS = ['card', 'image', 'note', 'boardLink', 'group', 'text', 'shape'] as const;
 
 export const MEDIA_CONTENT_TYPES: readonly MediaContentType[] = [
   'image/webp',
@@ -232,6 +240,8 @@ const MAX_TITLE = 300;
 const MAX_NAME = 120;
 const MAX_LABEL = 300;
 const MAX_CHECKLIST_TEXT = 2000;
+/** Note and text-node bodies. */
+const MAX_NODE_TEXT = 20000;
 const MAX_RANK = 64;
 
 export function validateBoardDoc(raw: unknown): BoardDocValidation {
@@ -405,7 +415,7 @@ function checkNodes(
         checkImage(e, p, entry);
         break;
       case 'note':
-        checkString(e, `${p}.text`, entry['text'], 20000);
+        checkString(e, `${p}.text`, entry['text'], MAX_NODE_TEXT);
         break;
       case 'boardLink':
         checkBoardLink(e, p, entry);
@@ -414,8 +424,14 @@ function checkNodes(
         checkString(e, `${p}.title`, entry['title'], MAX_TITLE);
         checkNumber(e, `${p}.padding`, entry['padding']);
         break;
+      case 'text':
+        checkText(e, p, entry);
+        break;
+      case 'shape':
+        checkShape(e, p, entry);
+        break;
       default:
-        e.add(`${p}.kind`, 'expected one of card, image, note, boardLink, group');
+        e.add(`${p}.kind`, `expected one of ${NODE_KINDS.join(', ')}`);
     }
   });
 
@@ -480,6 +496,27 @@ function checkImage(e: ErrorBag, p: string, n: Record<string, unknown>): void {
   checkVec(e, `${p}.naturalSize`, n['naturalSize'], 'w', 'h');
   checkNullableString(e, `${p}.caption`, n['caption'], MAX_LABEL);
   checkEnum(e, `${p}.fit`, n['fit'], FITS);
+}
+
+function checkText(e: ErrorBag, p: string, n: Record<string, unknown>): void {
+  checkString(e, `${p}.text`, n['text'], MAX_NODE_TEXT);
+  // A font size is geometry, not decoration: NaN or 10^6 is a node that cannot
+  // be drawn or cannot be escaped, and both survive a JSON round trip.
+  const size = n['fontSize'];
+  if (!isFinite_(size) || size < MIN_TEXT_SIZE || size > MAX_TEXT_SIZE) {
+    e.add(`${p}.fontSize`, `expected a number between ${MIN_TEXT_SIZE} and ${MAX_TEXT_SIZE}`);
+  }
+  checkEnum(e, `${p}.align`, n['align'], TEXT_ALIGNS);
+  checkEnum(e, `${p}.weight`, n['weight'], TEXT_WEIGHTS);
+}
+
+function checkShape(e: ErrorBag, p: string, n: Record<string, unknown>): void {
+  checkEnum(e, `${p}.shape`, n['shape'], SHAPE_KINDS);
+  checkString(e, `${p}.label`, n['label'], MAX_TITLE);
+  // Same rule as every other colour field, through the same helper: a hex the
+  // client accepts and the server refuses is a board that can never be saved.
+  checkColor(e, `${p}.fill`, n['fill']);
+  checkColor(e, `${p}.stroke`, n['stroke']);
 }
 
 function checkBoardLink(e: ErrorBag, p: string, n: Record<string, unknown>): void {

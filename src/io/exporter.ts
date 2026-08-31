@@ -9,12 +9,17 @@
  */
 
 import {
+  DEFAULT_TEXT_SIZE,
   isCardNode,
   isNoteNode,
+  isShapeNode,
+  isTextNode,
   type BoardDoc,
   type CardNode,
   type Id,
   type NoteNode,
+  type ShapeNode,
+  type TextNode,
 } from '@/domain/board';
 import { byRank } from '@/lib/ranks';
 import { gridColumns, gridSlot } from '@/io/layout';
@@ -23,6 +28,8 @@ import type {
   KartaImportCard,
   KartaImportEdge,
   KartaImportNote,
+  KartaImportShape,
+  KartaImportText,
 } from '@/io/schema';
 
 const ORIGIN = { x: 0, y: 0 };
@@ -42,15 +49,21 @@ function samePosition(a: { x: number; y: number }, b: { x: number; y: number }):
   return Math.abs(a.x - b.x) <= SLOP && Math.abs(a.y - b.y) <= SLOP;
 }
 
+/** Every node the portable format can carry. */
+type PortableNode = CardNode | NoteNode | TextNode | ShapeNode;
+
 /**
- * The portable projection. Cards and notes keep their order; positions are
- * dropped when they match the slot the importer's grid would have chosen, so a
- * board built from an import exports as clean JSON again.
+ * The portable projection. Nodes keep their order; positions are dropped when
+ * they match the slot the importer's grid would have chosen, so a board built
+ * from an import exports as clean JSON again.
  */
 export function toPortable(doc: BoardDoc): KartaImport {
   const cards = doc.nodes.filter(isCardNode);
   const notes = doc.nodes.filter(isNoteNode);
-  const placed: (CardNode | NoteNode)[] = [...cards, ...notes];
+  const texts = doc.nodes.filter(isTextNode);
+  const shapes = doc.nodes.filter(isShapeNode);
+  // The order `applyImport` hands out its grid slots in.
+  const placed: PortableNode[] = [...cards, ...notes, ...texts, ...shapes];
 
   const columns = gridColumns(placed.length);
   const slots = new Map<Id, { x: number; y: number }>();
@@ -82,6 +95,12 @@ export function toPortable(doc: BoardDoc): KartaImport {
   notes.forEach((note, i) => {
     if (referenced.has(note.id)) keys.set(note.id, `n${i + 1}`);
   });
+  texts.forEach((text, i) => {
+    if (referenced.has(text.id)) keys.set(text.id, `t${i + 1}`);
+  });
+  shapes.forEach((shape, i) => {
+    if (referenced.has(shape.id)) keys.set(shape.id, `s${i + 1}`);
+  });
 
   const cardTitles = new Map<Id, string>(cards.map((card) => [card.id, card.title.trim()]));
   const reference = (id: Id): string | null => {
@@ -91,7 +110,7 @@ export function toPortable(doc: BoardDoc): KartaImport {
     return title !== undefined && title.length > 0 ? title : null;
   };
 
-  const positionFor = (node: CardNode | NoteNode): { x: number; y: number } | undefined => {
+  const positionFor = (node: PortableNode): { x: number; y: number } | undefined => {
     const slot = slots.get(node.id);
     if (slot && samePosition(node.position, slot)) return undefined;
     return { x: Math.round(node.position.x), y: Math.round(node.position.y) };
@@ -137,6 +156,31 @@ export function toPortable(doc: BoardDoc): KartaImport {
     return out;
   });
 
+  const portableTexts: KartaImportText[] = texts.map((text) => {
+    const out: KartaImportText = { text: text.text };
+    const key = keys.get(text.id);
+    if (key) out.key = key;
+    if (text.fontSize !== DEFAULT_TEXT_SIZE) out.fontSize = text.fontSize;
+    if (text.align !== 'left') out.align = text.align;
+    if (text.weight !== 'regular') out.weight = text.weight;
+    if (text.color) out.color = text.color;
+    const position = positionFor(text);
+    if (position) out.position = position;
+    return out;
+  });
+
+  const portableShapes: KartaImportShape[] = shapes.map((shape) => {
+    const out: KartaImportShape = { shape: shape.shape };
+    const key = keys.get(shape.id);
+    if (key) out.key = key;
+    if (shape.label.length > 0) out.label = shape.label;
+    if (shape.fill) out.fill = shape.fill;
+    if (shape.stroke) out.stroke = shape.stroke;
+    const position = positionFor(shape);
+    if (position) out.position = position;
+    return out;
+  });
+
   const portableEdges: KartaImportEdge[] = [];
   for (const edge of doc.edges) {
     const from = reference(edge.source);
@@ -165,6 +209,8 @@ export function toPortable(doc: BoardDoc): KartaImport {
   }
   if (portableCards.length > 0) value.cards = portableCards;
   if (portableNotes.length > 0) value.notes = portableNotes;
+  if (portableTexts.length > 0) value.texts = portableTexts;
+  if (portableShapes.length > 0) value.shapes = portableShapes;
   if (portableEdges.length > 0) value.edges = portableEdges;
 
   return value;
@@ -202,7 +248,9 @@ Format:
       "collapsed": false
     }
   ],
-  "notes": [ { "key": "n1", "text": "A sticky note on the canvas", "color": "straw" } ],
+  "notes":  [ { "key": "n1", "text": "A sticky note on the canvas", "color": "straw" } ],
+  "texts":  [ { "text": "Section heading", "fontSize": 32, "weight": "bold" } ],
+  "shapes": [ { "key": "s1", "shape": "diamond", "label": "Ready?", "fill": "blue" } ],
   "edges": [
     { "from": "a", "to": "Other card title", "semantic": "depends", "label": "needs" }
   ]
@@ -211,8 +259,12 @@ Format:
 Rules:
 - Only "title" is required on a card. Everything else is optional.
 - "from" and "to" are card keys, or exact card titles.
-- A "key" must be unique across cards *and* notes.
+- A "key" must be unique across cards, notes, texts and shapes.
 - "semantic" is one of: relates, depends, blocks, derives. Default is relates.
+- "shape" is one of: rectangle, roundedRect, ellipse, diamond, triangle, hexagon,
+  cylinder, parallelogram, cloud, document, process, callout.
+- "texts" are headings laid on the canvas and "shapes" are flowchart boxes;
+  leave both out unless I ask for a diagram.
 - Leave positions out; Karta lays the cards out in a grid.
 - Use 5 to 15 cards unless I ask for more. Titles under 60 characters.
 

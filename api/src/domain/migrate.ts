@@ -6,11 +6,11 @@
  * "migrate everything" script that has to be right the first time. A document
  * is rewritten in its new shape the next time the user saves it.
  *
- * ## Adding schema version 2
+ * ## Adding a schema version
  *
  * 1. Bump `SCHEMA_VERSION` in `src/domain/board.ts` and update `BoardDoc`.
- * 2. Write `function v1ToV2(raw: RawDoc): RawDoc` below — pure, total, no I/O.
- * 3. Add `[1, v1ToV2]` to `MIGRATIONS`.
+ * 2. Write `function vNToVNext(raw: RawDoc): RawDoc` below — pure, total, no I/O.
+ * 3. Add `[N, vNToVNext]` to `MIGRATIONS`.
  *
  * The loop then walks any stored document forward one version at a time.
  * Nothing else changes: `migrate` already throws on versions from the future,
@@ -22,8 +22,17 @@ import { SCHEMA_VERSION } from '../../../src/domain/board.js';
 
 type RawDoc = Record<string, unknown>;
 
+/**
+ * 1 → 2: the `text` and `shape` nodes (spec 5.2). Purely additive — every node
+ * kind that existed under 1 has exactly the same shape under 2 — so there is
+ * nothing to rewrite and this step is deliberately the identity. It is
+ * registered rather than special-cased so the version loop stays one rule: a
+ * document declaring 1 walks through here and `normalise` stamps it as 2.
+ */
+const v1ToV2 = (raw: RawDoc): RawDoc => raw;
+
 /** `version` -> function producing the shape of `version + 1`. */
-const MIGRATIONS: ReadonlyMap<number, (raw: RawDoc) => RawDoc> = new Map();
+const MIGRATIONS: ReadonlyMap<number, (raw: RawDoc) => RawDoc> = new Map([[1, v1ToV2]]);
 
 const isRecord = (v: unknown): v is RawDoc => typeof v === 'object' && v !== null && !Array.isArray(v);
 

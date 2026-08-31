@@ -1,0 +1,419 @@
+/*
+ * Drawing an arrow: the affordances a node wears, and the chrome around the
+ * arrows themselves (spec 5.3, 7.3, 8.3).
+ *
+ * This lives beside `connect.ts` rather than in `canvas.css` because it is one
+ * feature end to end, and it is the *only* description of a connection handle
+ * in the product: `canvas.css` deliberately holds none. Every rule still names
+ * the node wrapper, because each one has to out-specify React Flow's own handle
+ * styling, which ships with the library. No colour is written literally;
+ * everything reads a token from section 8.1.
+ */
+
+/* --- the layer ---------------------------------------------------------- */
+
+.karta-connect-layer {
+  /*
+   * `fixed`, not `absolute`. A card clips its overflow and an absolutely
+   * positioned child is clipped with it — which is what halves the stock
+   * handles. A fixed box resolves against the nearest transformed ancestor,
+   * which is React Flow's node wrapper, so this layer lies exactly over the
+   * node, travels with the camera, and nothing clips it.
+   */
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* --- the perimeter ------------------------------------------------------ */
+
+/*
+ * One handle the size of the whole node. At rest only the 8 px band along the
+ * border takes the pointer, so an arrow can be started from the edge of a node
+ * without the middle of it ceasing to be draggable. While an arrow is looking
+ * for somewhere to land the band opens up to the whole rectangle, which is what
+ * makes a node a drop target rather than four dots on one.
+ */
+.karta-canvas .react-flow__node .react-flow__handle.karta-connect-ring {
+  inset: 0;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  transform: none;
+  border: none;
+  border-radius: var(--karta-r-surface);
+  background: transparent;
+  opacity: 1;
+  pointer-events: none;
+  transition: box-shadow 90ms linear, background-color 90ms linear;
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% 100%,
+    0 100%,
+    0 0,
+    8px 8px,
+    8px calc(100% - 8px),
+    calc(100% - 8px) calc(100% - 8px),
+    calc(100% - 8px) 8px,
+    8px 8px
+  );
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-connect-ring::after {
+  content: none;
+}
+
+/*
+ * React Flow's own handle is a dot that fills in when it is hovered or being
+ * connected from. This is not a dot, so it says so on all three states.
+ */
+.karta-canvas .react-flow__node .react-flow__handle.karta-connect-ring:hover,
+.karta-canvas .react-flow__node .react-flow__handle.karta-connect-ring.connectingfrom,
+.karta-canvas .react-flow__node .react-flow__handle.karta-connect-ring.connectingto {
+  border: none;
+  background: transparent;
+}
+
+/* Hovering a node says where an arrow could be pulled from. */
+.karta-canvas .react-flow__node:hover .react-flow__handle.karta-connect-ring:not(.is-locked) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--focus) 45%, transparent);
+}
+
+/* The border belongs to the resizer once the node is selected (spec 10). */
+.karta-canvas .react-flow__node:hover:not(.selected) .react-flow__handle.karta-connect-ring:not(.is-locked) {
+  pointer-events: all;
+  cursor: crosshair;
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-connect-ring:hover {
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+
+/* --- while an arrow is looking for somewhere to land -------------------- */
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-connect-ring.is-open,
+.karta-canvas .react-flow__node .react-flow__handle.karta-connect-ring.is-refused {
+  clip-path: none;
+  pointer-events: all;
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-connect-ring.is-open:hover {
+  box-shadow: inset 0 0 0 2px var(--focus);
+  background: color-mix(in srgb, var(--focus) 10%, transparent);
+}
+
+/*
+ * A refusal is a statement, not an alarm (spec 8.3): the node greys out and
+ * says so with a dashed edge. Nothing here goes red — red means `blocks`.
+ */
+.karta-canvas .react-flow__node .react-flow__handle.karta-connect-ring.is-refused:hover {
+  box-shadow: none;
+  outline: 1px dashed var(--line-strong);
+  outline-offset: -3px;
+  background: color-mix(in srgb, var(--surface-sunken) 55%, transparent);
+  cursor: not-allowed;
+}
+
+/* --- the four stubs ----------------------------------------------------- */
+
+/*
+ * The handle box is flush against the inside of its border, because React Flow
+ * anchors an edge to the *outer* face of the handle: flush means every arrow
+ * starts exactly on the card edge instead of floating a few pixels off it.
+ * Nothing of the box is drawn — the tab beside it is the whole visual.
+ */
+.karta-canvas .react-flow__node .react-flow__handle.karta-port {
+  width: 14px;
+  height: 14px;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 90ms linear;
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-port:hover,
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.connectingfrom,
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.connectingto {
+  border: none;
+  background: transparent;
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.react-flow__handle-right {
+  top: 50%;
+  right: 0;
+  bottom: auto;
+  left: auto;
+  transform: translateY(-50%);
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.react-flow__handle-left {
+  top: 50%;
+  left: 0;
+  right: auto;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.react-flow__handle-top {
+  top: 0;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translateX(-50%);
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.react-flow__handle-bottom {
+  bottom: 0;
+  left: 50%;
+  top: auto;
+  right: auto;
+  transform: translateX(-50%);
+}
+
+/*
+ * The target is far bigger than the tab: it reaches out past it and a little
+ * way back into the node, so the gesture is aimed at the edge of a card rather
+ * than at a pixel on it.
+ */
+.karta-canvas .react-flow__node .react-flow__handle.karta-port::after {
+  content: '';
+  position: absolute;
+  border-radius: 0;
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.react-flow__handle-right::after {
+  inset: -12px -24px -12px -2px;
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.react-flow__handle-left::after {
+  inset: -12px -2px -12px -24px;
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.react-flow__handle-top::after {
+  inset: -24px -12px -2px -12px;
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.react-flow__handle-bottom::after {
+  inset: -2px -12px -24px -12px;
+}
+
+/* Revealed by hover alone: no layout moves, nothing lifts (spec 8.3). */
+.karta-canvas .react-flow__node:hover .react-flow__handle.karta-port,
+.karta-canvas .react-flow__node.selected .react-flow__handle.karta-port {
+  opacity: 1;
+  pointer-events: all;
+  cursor: crosshair;
+}
+
+/* Too small to aim at long before it stops being drawn (spec 7.3). At that
+   zoom the perimeter goes with them: a crosshair over a 40 px block promises a
+   gesture nobody can aim. */
+.karta-canvas .react-flow__node .karta-connect-layer.is-far .react-flow__handle.karta-port,
+.karta-canvas .react-flow__node .karta-connect-layer.is-far .react-flow__handle.karta-connect-ring {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.karta-canvas .react-flow__node:hover .karta-connect-layer.is-far .react-flow__handle.karta-connect-ring {
+  box-shadow: none;
+  pointer-events: none;
+}
+
+/* --- the tab the stub draws --------------------------------------------- */
+
+.karta-port-tab {
+  position: absolute;
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--focus);
+  border-radius: var(--karta-r-chip);
+  background: var(--surface-raised);
+  /* Hits belong to the handle, so React Flow's own hit test finds a handle. */
+  pointer-events: none;
+}
+
+.karta-port-tab::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 7px;
+  height: 7px;
+  margin: auto;
+  background: var(--focus);
+}
+
+.react-flow__handle-right > .karta-port-tab {
+  top: 50%;
+  left: 100%;
+  transform: translate(5px, -50%);
+}
+
+.react-flow__handle-left > .karta-port-tab {
+  top: 50%;
+  right: 100%;
+  transform: translate(-5px, -50%);
+}
+
+.react-flow__handle-top > .karta-port-tab {
+  left: 50%;
+  bottom: 100%;
+  transform: translate(-50%, -5px);
+}
+
+.react-flow__handle-bottom > .karta-port-tab {
+  left: 50%;
+  top: 100%;
+  transform: translate(-50%, 5px);
+}
+
+.react-flow__handle-right > .karta-port-tab::after {
+  clip-path: polygon(15% 0, 100% 50%, 15% 100%);
+}
+
+.react-flow__handle-left > .karta-port-tab::after {
+  clip-path: polygon(85% 0, 0 50%, 85% 100%);
+}
+
+.react-flow__handle-top > .karta-port-tab::after {
+  clip-path: polygon(0 85%, 50% 0, 100% 85%);
+}
+
+.react-flow__handle-bottom > .karta-port-tab::after {
+  clip-path: polygon(0 15%, 50% 100%, 100% 15%);
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-port:hover > .karta-port-tab,
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.connectingfrom > .karta-port-tab {
+  background: var(--focus);
+}
+
+.karta-canvas .react-flow__node .react-flow__handle.karta-port:hover > .karta-port-tab::after,
+.karta-canvas .react-flow__node .react-flow__handle.karta-port.connectingfrom > .karta-port-tab::after {
+  background: var(--surface-raised);
+}
+
+/* --- the line being dragged --------------------------------------------- */
+
+.karta-canvas .react-flow__connectionline .react-flow__connection-path {
+  stroke: var(--focus);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* --- edges -------------------------------------------------------------- */
+
+/*
+ * The label sits on the line, so it carries its own ground. It takes no
+ * pointer events at all: a click aimed at a labelled arrow is aimed at the
+ * arrow, and the chip must not be the thing that swallows it.
+ */
+.karta-canvas .karta-edge-label.karta-edge-chip {
+  padding: 1px 6px;
+  font-size: var(--karta-t-meta);
+  line-height: 16px;
+  color: var(--ink-muted);
+  pointer-events: none;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * Hover and selection are the same halo at two strengths, which is one idea
+ * rather than two. `canvas.css` gives it its colour; what is decided here is
+ * when it is there — and it is never the thing the pointer answers to.
+ */
+.karta-canvas .karta-edge-halo {
+  stroke-opacity: 0;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+  transition: stroke-opacity 90ms linear;
+}
+
+.karta-canvas .react-flow__edge:hover .karta-edge-halo:not(.is-on) {
+  stroke-opacity: 0.13;
+}
+
+.karta-canvas .karta-edge-halo.is-on {
+  stroke-opacity: 0.24;
+}
+
+/*
+ * The anchor scales about its own corner, so `translate(-50%, -100%)` after
+ * the counter-scale lands the panel exactly above the point it belongs to.
+ */
+.karta-canvas .karta-edge-toolbar-anchor {
+  transform-origin: 0 0;
+}
+
+/* --- the arrow toolbar -------------------------------------------------- */
+
+.karta-canvas .karta-edge-toolbar {
+  gap: 8px;
+  width: 268px;
+  padding: 10px;
+}
+
+.karta-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.karta-toolbar-seg {
+  display: flex;
+  gap: 2px;
+}
+
+/*
+ * A field name, not an eyebrow: one word at metadata size, in the muted ink,
+ * on the same baseline as the control it names (spec 8.2).
+ */
+.karta-toolbar-label {
+  flex: 0 0 46px;
+  font-size: var(--karta-t-meta);
+  line-height: 22px;
+  color: var(--ink-muted);
+}
+
+/* What the chosen semantic actually claims, in the words spec 5.3 uses. */
+.karta-toolbar-hint {
+  margin: -2px 0 0;
+  font-size: var(--karta-t-meta);
+  line-height: 1.35;
+  color: var(--ink-muted);
+}
+
+.karta-toolbar-rule {
+  height: 1px;
+  margin: 0;
+  border: none;
+  background: var(--line);
+}
+
+.karta-canvas .karta-edge-toolbar .karta-swatch-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+/* --- the menu an arrow dropped on the canvas opens ---------------------- */
+
+/*
+ * The same box as the toolbar's add menu, to the pixel, because they hold the
+ * same list — and a list that is 176 px wide in one place and 208 px in another
+ * is the kind of thing that is never noticed and always felt.
+ */
+.karta-canvas .karta-connect-menu {
+  width: 176px;
+  padding: var(--space-2);
+}

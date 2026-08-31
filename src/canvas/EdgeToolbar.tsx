@@ -20,7 +20,12 @@ const ROUTINGS: ReadonlyArray<{ value: EdgeRouting; label: string; Icon: typeof 
 
 /**
  * The floating editor for a selected arrow (spec 5.3). It lives in the edge
- * label layer, counter-scaled so it stays the same size at any zoom.
+ * label layer, counter-scaled and set above the line so it never covers the
+ * thing it is editing.
+ *
+ * The semantic is the only choice on it that changes what the board *means*,
+ * so it gets the full width and says out loud what the chosen one claims —
+ * four arrow types are a vocabulary, and a vocabulary has to be taught.
  */
 export default function EdgeToolbar({ edge }: { edge: Edge }): JSX.Element {
   const updateEdge = useBoardStore((s) => s.updateEdge);
@@ -41,14 +46,17 @@ export default function EdgeToolbar({ edge }: { edge: Edge }): JSX.Element {
     updateEdge(edge.id, { color });
   };
 
+  const semantic = SEMANTICS.find((item) => item.value === edge.semantic) ?? SEMANTICS[0];
+
   return (
     <div className="karta-edge-toolbar nodrag nopan nowheel" role="group" aria-label="Arrow">
-      <div className="flex gap-0.5">
+      <div className="karta-toolbar-seg">
         {SEMANTICS.map((item) => (
           <button
             key={item.value}
             type="button"
             title={item.hint}
+            aria-pressed={edge.semantic === item.value}
             className={cx('karta-tool-btn', edge.semantic === item.value && 'is-on')}
             onClick={() => updateEdge(edge.id, { semantic: item.value })}
           >
@@ -56,15 +64,22 @@ export default function EdgeToolbar({ edge }: { edge: Edge }): JSX.Element {
           </button>
         ))}
       </div>
+      <p className="karta-toolbar-hint">{semantic.hint}</p>
 
-      <div className="flex items-center gap-1">
-        <div className="flex gap-0.5">
+      <hr className="karta-toolbar-rule" />
+
+      <div className="karta-toolbar-row">
+        <span className="karta-toolbar-label" id={`route-${edge.id}`}>
+          Route
+        </span>
+        <div className="karta-toolbar-seg" role="group" aria-labelledby={`route-${edge.id}`}>
           {ROUTINGS.map(({ value, label: name, Icon }) => (
             <button
               key={value}
               type="button"
               title={name}
               aria-label={name}
+              aria-pressed={edge.routing === value}
               className={cx('karta-tool-btn karta-tool-icon', edge.routing === value && 'is-on')}
               onClick={() => updateEdge(edge.id, { routing: value })}
             >
@@ -72,12 +87,18 @@ export default function EdgeToolbar({ edge }: { edge: Edge }): JSX.Element {
             </button>
           ))}
         </div>
+      </div>
 
-        <div className="ml-auto flex items-center gap-1">
+      <div className="karta-toolbar-row">
+        <span className="karta-toolbar-label" id={`colour-${edge.id}`}>
+          Colour
+        </span>
+        <div className="karta-swatch-row" role="group" aria-labelledby={`colour-${edge.id}`}>
           <button
             type="button"
-            title="Semantic colour"
+            title={`Semantic colour — ${semantic.label.toLowerCase()}`}
             aria-label="Semantic colour"
+            aria-pressed={edge.color === null}
             className={cx('karta-swatch', edge.color === null && 'is-on')}
             style={{ background: edgeColor(edge.semantic, null) }}
             onClick={() => setColor(null)}
@@ -88,6 +109,7 @@ export default function EdgeToolbar({ edge }: { edge: Edge }): JSX.Element {
               type="button"
               title={token}
               aria-label={token}
+              aria-pressed={edge.color === token}
               className={cx('karta-swatch', edge.color === token && 'is-on')}
               style={{ background: colorValue(token) }}
               onClick={() => setColor(token)}
@@ -96,7 +118,9 @@ export default function EdgeToolbar({ edge }: { edge: Edge }): JSX.Element {
         </div>
       </div>
 
-      <div className="flex items-center gap-1">
+      <hr className="karta-toolbar-rule" />
+
+      <div className="karta-toolbar-row">
         <input
           className="karta-input"
           value={label}

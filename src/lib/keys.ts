@@ -10,6 +10,8 @@
 export type ShortcutName =
   | 'new-card'
   | 'new-note'
+  | 'new-text'
+  | 'new-shape'
   | 'open-editor'
   | 'escape'
   | 'toggle-view'
@@ -73,6 +75,11 @@ export function matchShortcut(e: KeyboardEvent): ShortcutName | null {
   if (key === 'Tab') return e.shiftKey ? null : 'toggle-view';
 
   if (key === 'n' || key === 'N') return e.shiftKey ? 'new-note' : 'new-card';
+  // The two kinds spec 5.2 added. `S` opens the picker rather than placing a
+  // shape outright: there are twelve of them, and guessing which one is meant
+  // is worse than asking.
+  if (key === 't' || key === 'T') return e.shiftKey ? null : 'new-text';
+  if (key === 's' || key === 'S') return e.shiftKey ? null : 'new-shape';
 
   if (!e.shiftKey && key.length === 1 && key >= '1' && key <= '7') {
     return `color-${Number(key) as 1 | 2 | 3 | 4 | 5 | 6 | 7}`;

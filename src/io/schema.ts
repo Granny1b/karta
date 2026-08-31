@@ -7,7 +7,18 @@
  * `docs/AI_IMPORT.md` is the human-facing description of the same thing.
  */
 
-import type { ColorToken, EdgeSemantic, HexColor } from '@/domain/board';
+import {
+  MAX_TEXT_SIZE,
+  MIN_TEXT_SIZE,
+  SHAPE_KINDS,
+  TEXT_ALIGNS,
+  TEXT_WEIGHTS,
+  type ColorToken,
+  type EdgeSemantic,
+  type HexColor,
+  type ShapeKind,
+  type TextNode,
+} from '@/domain/board';
 import { TEMPER_TOKENS, isColorToken, normalizeHex } from '@/lib/colors';
 
 export interface KartaImportBoard {
@@ -57,6 +68,30 @@ export interface KartaImportNote {
   position?: { x: number; y: number };
 }
 
+/** Free text on the canvas. `text` is required, but may be empty. */
+export interface KartaImportText {
+  key?: string;
+  text: string;
+  /** px at zoom 1. Out-of-range values fall back to the default with a warning. */
+  fontSize?: number;
+  align?: TextNode['align'];
+  weight?: TextNode['weight'];
+  position?: { x: number; y: number };
+  /** The ink, not a background. */
+  color?: ColorToken | HexColor;
+}
+
+/** A draw.io shape. Only `shape` is required. */
+export interface KartaImportShape {
+  key?: string;
+  shape: ShapeKind;
+  label?: string;
+  /** Omit for an outline-only shape. */
+  fill?: ColorToken | HexColor;
+  stroke?: ColorToken | HexColor;
+  position?: { x: number; y: number };
+}
+
 export interface KartaImportEdge {
   /** A card key, or a card title. */
   from: string;
@@ -72,6 +107,8 @@ export interface KartaImport {
   labels?: KartaImportLabel[];
   cards?: KartaImportCard[];
   notes?: KartaImportNote[];
+  texts?: KartaImportText[];
+  shapes?: KartaImportShape[];
   edges?: KartaImportEdge[];
 }
 
@@ -101,6 +138,7 @@ export const IMPORT_LIMITS = {
   /** Card body — markdown. */
   body: 200_000,
   checklistText: 2_000,
+  /** Note text, and the body of a text node. */
   noteText: 20_000,
   edgeLabel: 300,
   icon: 64,
@@ -122,6 +160,8 @@ const CARD_KEYS = new Set([
   'collapsed',
 ]);
 const NOTE_KEYS = new Set(['key', 'text', 'color', 'position']);
+const TEXT_KEYS = new Set(['key', 'text', 'fontSize', 'align', 'weight', 'position', 'color']);
+const SHAPE_KEYS = new Set(['key', 'shape', 'label', 'fill', 'stroke', 'position']);
 const EDGE_KEYS = new Set(['from', 'to', 'semantic', 'label']);
 const ROOT_KEYS = new Set([
   'kartaVersion',
@@ -130,8 +170,13 @@ const ROOT_KEYS = new Set([
   'labels',
   'cards',
   'notes',
+  'texts',
+  'shapes',
   'edges',
 ]);
+
+/** The portable arrays that carry nodes — see {@link looksLikeBoardDoc}. */
+const NODE_ARRAY_KEYS = ['cards', 'notes', 'texts', 'shapes'] as const;
 
 /* ------------------------------------------------------------------ *
  * Problem collection
@@ -277,6 +322,44 @@ function readToken(p: Problems, value: unknown, path: string): ColorToken | unde
   return undefined;
 }
 
+/**
+ * One of a fixed set, matched case-insensitively. A value that is not in the
+ * set warns and returns `undefined`, so the caller's default — the one named
+ * in the warning — applies. Missing is only a problem where it is required.
+ */
+function readChoice<T extends string>(
+  p: Problems,
+  value: unknown,
+  path: string,
+  allowed: readonly T[],
+  fallback: T,
+  options: { required?: boolean } = {},
+): T | undefined {
+  const raw = readString(p, value, path, { required: options.required });
+  if (raw === undefined) return undefined;
+  const match = allowed.find((option) => option.toLowerCase() === raw.toLowerCase());
+  if (match !== undefined) return match;
+  p.warn(`${path} "${raw}" is not one of ${allowed.join(', ')}; "${fallback}" was used.`);
+  return undefined;
+}
+
+/**
+ * A text node's size in canvas pixels. Out of range is a warning, not an
+ * error: the node is still text, and the API would refuse the document.
+ */
+function readFontSize(p: Problems, value: unknown, path: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    p.warn(`${path} must be a number of pixels and was ignored.`);
+    return undefined;
+  }
+  if (value < MIN_TEXT_SIZE || value > MAX_TEXT_SIZE) {
+    p.warn(`${path} must be between ${MIN_TEXT_SIZE} and ${MAX_TEXT_SIZE}; the default was used.`);
+    return undefined;
+  }
+  return value;
+}
+
 /** `YYYY-MM-DD` or anything `Date` understands, normalised to ISO 8601 UTC. */
 function readDue(p: Problems, value: unknown, path: string): string | undefined {
   if (value === undefined || value === null) return undefined;
@@ -311,11 +394,15 @@ function looksLikeBoardDoc(value: unknown): value is Record<string, unknown> {
   if (!isRecord(value)) return false;
   if (!Array.isArray(value.nodes)) return false;
   if (value.kartaVersion !== undefined) return false; // it says it is portable
-  const cards = Array.isArray(value.cards) ? value.cards : undefined;
-  const notes = Array.isArray(value.notes) ? value.notes : undefined;
-  if (cards || notes) {
+
+  const portable: unknown[][] = [];
+  for (const key of NODE_ARRAY_KEYS) {
+    const list = value[key];
+    if (Array.isArray(list)) portable.push(list);
+  }
+  if (portable.length > 0) {
     if (value.nodes.length === 0) return false; // nothing to read from `nodes`
-    if ((cards?.length ?? 0) > 0 || (notes?.length ?? 0) > 0) return false;
+    if (portable.some((list) => list.length > 0)) return false;
   }
   return typeof value.schemaVersion === 'number' || Array.isArray(value.statuses);
 }
@@ -336,7 +423,12 @@ function fromBoardDoc(doc: Record<string, unknown>, p: Problems): Record<string,
 
   const cards: Record<string, unknown>[] = [];
   const notes: Record<string, unknown>[] = [];
+  const texts: Record<string, unknown>[] = [];
+  const shapes: Record<string, unknown>[] = [];
   let skipped = 0;
+
+  const handle = (node: Record<string, unknown>): string | undefined =>
+    typeof node.id === 'string' ? node.id : undefined;
 
   for (const node of nodes) {
     if (!isRecord(node)) continue;
@@ -350,7 +442,7 @@ function fromBoardDoc(doc: Record<string, unknown>, p: Problems): Record<string,
         ? node.labelIds.map((id) => nameById(labelList, id)).filter((name) => name !== undefined)
         : undefined;
       cards.push({
-        key: typeof node.id === 'string' ? node.id : undefined,
+        key: handle(node),
         title: node.title,
         body: node.body,
         status: nameById(statusList, node.statusId),
@@ -363,9 +455,28 @@ function fromBoardDoc(doc: Record<string, unknown>, p: Problems): Record<string,
       });
     } else if (node.kind === 'note') {
       notes.push({
-        key: typeof node.id === 'string' ? node.id : undefined,
+        key: handle(node),
         text: node.text,
         color: node.color ?? undefined,
+        position: node.position,
+      });
+    } else if (node.kind === 'text') {
+      texts.push({
+        key: handle(node),
+        text: node.text,
+        fontSize: node.fontSize,
+        align: node.align,
+        weight: node.weight,
+        color: node.color ?? undefined,
+        position: node.position,
+      });
+    } else if (node.kind === 'shape') {
+      shapes.push({
+        key: handle(node),
+        shape: node.shape,
+        label: node.label,
+        fill: node.fill ?? undefined,
+        stroke: node.stroke ?? undefined,
         position: node.position,
       });
     } else {
@@ -402,6 +513,8 @@ function fromBoardDoc(doc: Record<string, unknown>, p: Problems): Record<string,
     labels,
     cards,
     notes,
+    texts,
+    shapes,
     edges,
   };
 }
@@ -428,6 +541,24 @@ function detectShape(raw: unknown, p: Problems): Record<string, unknown> | null 
 /* ------------------------------------------------------------------ *
  * Validation
  * ------------------------------------------------------------------ */
+
+/**
+ * Claim an import-local handle. Cards, notes, texts and shapes share one key
+ * namespace — an edge names a key, not a list — so the first claimant keeps it
+ * and every later one is warned about in the same words.
+ *
+ * Keys are only capped where a title is: an edge naming a long title must
+ * still resolve to it.
+ */
+function claimKey(p: Problems, keys: Set<string>, value: unknown, path: string): string | undefined {
+  const key = readString(p, value, `${path}.key`, { max: IMPORT_LIMITS.title });
+  if (key === undefined) return undefined;
+  if (keys.has(key)) {
+    p.warn(`${path}.key "${key}" is already used; edges may attach to the wrong node.`);
+  }
+  keys.add(key);
+  return key;
+}
 
 function validateStatuses(p: Problems, raw: unknown): KartaImportStatus[] | undefined {
   const list = readArray(p, raw, 'statuses');
@@ -558,15 +689,7 @@ function validateCards(p: Problems, raw: unknown, keys: Set<string>): KartaImpor
     });
     if (title === undefined) return;
 
-    // Keys are import-local handles, so they are only capped where a title is
-    // — an edge naming a long title must still resolve to it.
-    const key = readString(p, entry.key, `${path}.key`, { max: IMPORT_LIMITS.title });
-    if (key !== undefined) {
-      if (keys.has(key)) {
-        p.warn(`${path}.key "${key}" is used more than once; edges may attach to the wrong card.`);
-      }
-      keys.add(key);
-    }
+    const key = claimKey(p, keys, entry.key, path);
 
     // Markdown keeps its whitespace — trimming a body would eat its layout.
     let body: string | undefined;
@@ -652,21 +775,103 @@ function validateNotes(p: Problems, raw: unknown, keys: Set<string>): KartaImpor
     });
     if (text === undefined) return;
 
-    const key = readString(p, entry.key, `${path}.key`, { max: IMPORT_LIMITS.title });
-    if (key !== undefined) {
-      if (keys.has(key)) {
-        p.warn(
-          `${path}.key "${key}" is already used by another card or note; edges may attach to the wrong thing.`,
-        );
-      }
-      keys.add(key);
-    }
-
     out.push({
-      key,
+      key: claimKey(p, keys, entry.key, path),
       text,
       color: readColor(p, entry.color, `${path}.color`),
       position: readPosition(p, entry.position, `${path}.position`),
+    });
+  });
+  return out;
+}
+
+/** @param keys the one key namespace shared with {@link validateCards}. */
+function validateTexts(p: Problems, raw: unknown, keys: Set<string>): KartaImportText[] | undefined {
+  const list = readArray(p, raw, 'texts');
+  if (!list) return undefined;
+
+  const out: KartaImportText[] = [];
+  list.forEach((entry, i) => {
+    const path = `texts[${i}]`;
+    if (typeof entry === 'string') {
+      const text = readString(p, entry, path, {
+        required: true,
+        allowEmpty: true,
+        max: IMPORT_LIMITS.noteText,
+      });
+      if (text !== undefined) out.push({ text });
+      return;
+    }
+    if (!isRecord(entry)) {
+      p.error(`${path} must be an object with text.`);
+      return;
+    }
+    unknownKeys(p, entry, path, TEXT_KEYS);
+    // A text box created and not yet typed into is empty, and has to survive
+    // its own backup exactly as an untouched sticky note does.
+    const text = readString(p, entry.text, `${path}.text`, {
+      required: true,
+      allowEmpty: true,
+      max: IMPORT_LIMITS.noteText,
+    });
+    if (text === undefined) return;
+
+    out.push({
+      key: claimKey(p, keys, entry.key, path),
+      text,
+      fontSize: readFontSize(p, entry.fontSize, `${path}.fontSize`),
+      align: readChoice(p, entry.align, `${path}.align`, TEXT_ALIGNS, 'left'),
+      weight: readChoice(p, entry.weight, `${path}.weight`, TEXT_WEIGHTS, 'regular'),
+      position: readPosition(p, entry.position, `${path}.position`),
+      color: readColor(p, entry.color, `${path}.color`),
+    });
+  });
+  return out;
+}
+
+/** @param keys the one key namespace shared with {@link validateCards}. */
+function validateShapes(p: Problems, raw: unknown, keys: Set<string>): KartaImportShape[] | undefined {
+  const list = readArray(p, raw, 'shapes');
+  if (!list) return undefined;
+
+  const out: KartaImportShape[] = [];
+  list.forEach((entry, i) => {
+    const path = `shapes[${i}]`;
+    // The bare form is the shape name itself: "shapes": ["diamond", "cloud"].
+    const record = isRecord(entry) ? entry : null;
+    if (!record && typeof entry !== 'string') {
+      p.error(`${path} must be a shape name, or an object like { "shape": "diamond" }.`);
+      return;
+    }
+    if (record) unknownKeys(p, record, path, SHAPE_KEYS);
+
+    // A missing shape is an error; an unrecognised one is a warning and a
+    // rectangle, so a model inventing "octagon" still lands a node.
+    const shape =
+      readChoice(
+        p,
+        record ? record.shape : entry,
+        record ? `${path}.shape` : path,
+        SHAPE_KINDS,
+        'rectangle',
+        { required: true },
+      ) ?? 'rectangle';
+
+    if (!record) {
+      out.push({ shape });
+      return;
+    }
+
+    out.push({
+      key: claimKey(p, keys, record.key, path),
+      shape,
+      label: readString(p, record.label, `${path}.label`, {
+        allowEmpty: true,
+        max: IMPORT_LIMITS.title,
+      }),
+      fill: readColor(p, record.fill, `${path}.fill`),
+      stroke: readColor(p, record.stroke, `${path}.stroke`),
+      position: readPosition(p, record.position, `${path}.position`),
     });
   });
   return out;
@@ -762,7 +967,7 @@ export function validateImport(raw: unknown): ValidationResult {
   const labels = validateLabels(p, shape.labels);
   if (labels && labels.length > 0) value.labels = labels;
 
-  // Cards and notes share one key namespace: an edge names a key, not a list.
+  // Every node list shares one key namespace: an edge names a key, not a list.
   const keys = new Set<string>();
 
   const cards = validateCards(p, shape.cards, keys);
@@ -771,11 +976,19 @@ export function validateImport(raw: unknown): ValidationResult {
   const notes = validateNotes(p, shape.notes, keys);
   if (notes && notes.length > 0) value.notes = notes;
 
+  const texts = validateTexts(p, shape.texts, keys);
+  if (texts && texts.length > 0) value.texts = texts;
+
+  const shapes = validateShapes(p, shape.shapes, keys);
+  if (shapes && shapes.length > 0) value.shapes = shapes;
+
   const edges = validateEdges(p, shape.edges);
   if (edges && edges.length > 0) value.edges = edges;
 
-  if (p.errors.length === 0 && !value.cards && !value.notes && !value.statuses && !value.labels) {
-    p.error('There is nothing to import — no cards and no notes were found.');
+  const empty =
+    !value.cards && !value.notes && !value.texts && !value.shapes && !value.statuses && !value.labels;
+  if (p.errors.length === 0 && empty) {
+    p.error('There is nothing to import — no cards, notes, text or shapes were found.');
   }
 
   if (p.errors.length > 0) return { ok: false, errors: cap(p.errors), warnings: p.warnings };

@@ -31,6 +31,8 @@ describe('matchShortcut', () => {
   it('maps the section 9 table', () => {
     expect(matchShortcut(press('n'))).toBe('new-card');
     expect(matchShortcut(press('N', { shiftKey: true }))).toBe('new-note');
+    expect(matchShortcut(press('t'))).toBe('new-text');
+    expect(matchShortcut(press('s'))).toBe('new-shape');
     expect(matchShortcut(press('Enter'))).toBe('open-editor');
     expect(matchShortcut(press('Escape'))).toBe('escape');
     expect(matchShortcut(press('Tab'))).toBe('toggle-view');

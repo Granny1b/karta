@@ -1,0 +1,94 @@
+/*
+ * React Flow's own chrome, bound to the tokens in section 8.1.
+ *
+ * The library ships a complete theme of its own — a cobalt marquee, a cobalt
+ * resize dot, #b1b1b7 wires, off-white control buttons with a soft drop shadow.
+ * None of it is wrong; all of it is somebody else's product, and leaving any of
+ * it visible is what makes an app built on a canvas library look like a demo of
+ * the canvas library. Every stock value is answered here.
+ *
+ * Scope and order. `canvas/canvas.css` and `canvas/connect.css` own the board's
+ * own furniture — nodes, frames, handles, ports, edge labels, the control dock
+ * — and draw it outright inside `.karta-canvas`. This file deliberately does
+ * not restate any of that: it sets the variables behind the parts nobody drew,
+ * and it takes the marquee, which nothing else claims. Import it after
+ * `styles/index.css`.
+ *
+ * There is no dark block. Every value below resolves a token that already has
+ * one, and React Flow's own `.dark` class is never applied — the theme is a
+ * `data-theme` attribute on the document element (`state/uiStore.ts`).
+ */
+
+.react-flow {
+  /* Wires. The stroke at rest belongs to the edge semantics (5.3); what is set
+     here is the one case React Flow decides for itself — a selected edge, which
+     would otherwise be #555 on both grounds. */
+  --xy-edge-stroke-selected: var(--focus);
+
+  /* The field. A `<Background>` given no colour of its own reads the hairline
+     rather than #91919a, which is a grey belonging to no palette here. */
+  --xy-background-pattern-dots-color: var(--line-strong);
+  --xy-background-pattern-lines-color: var(--line);
+  --xy-background-pattern-cross-color: var(--line);
+
+  /* The built-in edge label, for any edge that does not draw its own chip. */
+  --xy-edge-label-background-color: var(--surface-raised);
+  --xy-edge-label-color: var(--ink);
+
+  /* The resize dot and its guide lines, which are otherwise #3367d9. */
+  --xy-resize-background-color: var(--focus);
+
+  /* Two things are deliberately not set here, because they are drawn outright
+     one layer down and a variable said twice is a variable that will disagree
+     with itself: the zoom controls (`canvas/canvas.css`) and the line dragged
+     out of a node before it has anywhere to land (`canvas/connect.css`). */
+
+  /* The attribution carries its own ground in `canvas.css`. */
+  --xy-attribution-background-color: transparent;
+}
+
+/* --- the marquee --------------------------------------------------------- */
+
+/*
+ * The rectangle dragged across the field to select. It is repositioned on every
+ * pointer move, so it is the cheapest box on the page: a flat fill, a 1 px
+ * edge, and nothing that would ask for a new layer or a repaint of what is
+ * behind it — no shadow, no blur, no transition. It also takes no pointer
+ * events, so it can never become the thing under the cursor it is chasing.
+ */
+.react-flow__selection {
+  border: 1px solid var(--select-line);
+  border-radius: var(--radius-xs);
+  background: var(--select-fill);
+  box-shadow: none;
+  filter: none;
+  transition: none;
+  pointer-events: none;
+}
+
+/*
+ * A marquee is a per-frame gesture, and it is on screen only while the pointer
+ * is down: `:has` is true exactly for the duration of the drag. While it runs,
+ * nothing else on the canvas is allowed to animate. Sixty nodes each easing a
+ * handle in and out as the rectangle sweeps over them is a repaint per node per
+ * frame, and it is felt as the rectangle lagging behind the cursor rather than
+ * as the handles being slow.
+ *
+ * This is the same instrument the reduced-motion block in `index.css` uses, for
+ * the same reason: it has to beat every transition already declared, wherever
+ * it was declared.
+ */
+.react-flow:has(.react-flow__selection) .react-flow__node,
+.react-flow:has(.react-flow__selection) .react-flow__handle,
+.react-flow:has(.react-flow__selection) .react-flow__edge {
+  transition: none !important;
+}
+
+/*
+ * Dragging across text selects it, which costs a layout pass per frame and
+ * leaves half a card highlighted when the pointer comes up.
+ */
+.react-flow:has(.react-flow__selection) .react-flow__nodes {
+  user-select: none;
+  -webkit-user-select: none;
+}

@@ -34,15 +34,24 @@ function isLater(a: string, b: string): boolean {
   return a > b;
 }
 
+/** The first line of a prose node, short enough to sit inside a sentence. */
+function firstLine(text: string, fallback: string): string {
+  const line = text.split('\n', 1)[0]?.trim() ?? '';
+  if (line.length === 0) return fallback;
+  return line.length > 40 ? `${line.slice(0, 40)}…` : line;
+}
+
 function nodeLabel(node: BoardNode): string {
   switch (node.kind) {
     case 'card':
     case 'group':
       return node.title.trim() || 'Untitled';
-    case 'note': {
-      const firstLine = node.text.split('\n', 1)[0]?.trim() ?? '';
-      return firstLine.length > 40 ? `${firstLine.slice(0, 40)}…` : firstLine || 'Note';
-    }
+    case 'note':
+      return firstLine(node.text, 'Note');
+    case 'text':
+      return firstLine(node.text, 'Text');
+    case 'shape':
+      return node.label.trim() || 'Shape';
     case 'image':
       return node.caption?.trim() || 'Image';
     case 'boardLink':
@@ -62,6 +71,10 @@ function kindWord(node: BoardNode): string {
       return 'Board link';
     case 'group':
       return 'Group';
+    case 'text':
+      return 'Text';
+    case 'shape':
+      return 'Shape';
   }
 }
 
