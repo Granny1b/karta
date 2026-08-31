@@ -37,6 +37,15 @@ export class ApiError extends Error {
   get conflict(): boolean {
     return this.status === 412;
   }
+
+  /**
+   * Authenticated but not authorised: the account signed in and still lacks the
+   * `member` role, or the board's ACL excludes it. The shell shows the
+   * invitation route rather than a generic failure.
+   */
+  get forbidden(): boolean {
+    return this.status === 403;
+  }
 }
 
 interface Envelope<T> {
@@ -44,17 +53,62 @@ interface Envelope<T> {
   etag: string | null;
 }
 
+/**
+ * Static Web Apps rewrites 401/403 to HTML pages (`responseOverrides` in
+ * staticwebapp.config.json), so an API call that is refused comes back as a
+ * whole HTML document rather than JSON. Never surface that as an error
+ * message — it used to render the entire no-access page inside the UI.
+ */
+function looksLikeHtml(text: string): boolean {
+  return /^\s*(<!doctype\b|<html\b)/i.test(text);
+}
+
+/** Longest server-supplied string worth putting in front of a person. */
+const MAX_MESSAGE = 200;
+
+/** What each status means in this app, when the body cannot say it better. */
+function statusMessage(status: number, fallback: string): string {
+  switch (status) {
+    case 0:
+      return 'No connection to the server';
+    case 401:
+      return 'Your session has expired. Sign in again.';
+    case 403:
+      // Could be the member role or the board's own ACL, and Static Web Apps
+      // rewrites the body to an HTML page so the server's reason is lost.
+      // Say what is certain and name the request, rather than guessing.
+      return 'The server refused this request (403). Your sign-in worked, so this is the member role or the board permissions.';
+    case 404:
+      return 'Not found';
+    case 412:
+      return 'This board changed somewhere else';
+    case 413:
+      return 'That board is too large to save. Split it into a nested board.';
+    case 429:
+      return 'Too many requests. Try again in a moment.';
+    default:
+      return status >= 500 ? `The server failed (${status})` : `${fallback} (${status})`;
+  }
+}
+
 function messageFrom(status: number, body: unknown, fallback: string): string {
-  if (typeof body === 'string' && body.trim().length > 0) return body.trim();
+  if (typeof body === 'string') {
+    const text = body.trim();
+    // An HTML page is a rewrite, not a message. Anything book-length is a page too.
+    if (text.length > 0 && !looksLikeHtml(text) && text.length <= MAX_MESSAGE) return text;
+  }
   if (body && typeof body === 'object') {
     const record = body as Record<string, unknown>;
     for (const key of ['error', 'message', 'detail'] as const) {
       const value = record[key];
-      if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+      if (typeof value === 'string' && value.trim().length > 0) return value.trim().slice(0, MAX_MESSAGE);
     }
   }
-  return `${fallback} (${status})`;
+  return statusMessage(status, fallback);
 }
+
+/** Exposed for tests only — the request helper is the real caller. */
+export const messageForTest = messageFrom;
 
 async function readBody(res: Response): Promise<unknown> {
   const text = await res.text();
@@ -85,12 +139,13 @@ async function request<T>(
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
   } catch {
-    throw new ApiError(0, 'No connection to the server');
+    throw new ApiError(0, `No connection to the server [${method} ${BASE}${path}]`);
   }
 
   const body = await readBody(res);
   if (!res.ok) {
-    throw new ApiError(res.status, messageFrom(res.status, body, res.statusText || 'Request failed'), body);
+    const reason = messageFrom(res.status, body, res.statusText || 'Request failed');
+    throw new ApiError(res.status, `${reason} [${method} ${BASE}${path}]`, body);
   }
 
   return { data: body as T, etag: res.headers.get('etag') };
