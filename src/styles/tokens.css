@@ -1,0 +1,60 @@
+/*
+ * Design tokens — spec 8.1.
+ *
+ * Every colour in the product comes from here. Components never write a hex
+ * value; they read a token, which is what makes the dark theme a single block
+ * of overrides rather than a second stylesheet.
+ */
+
+:root {
+  /* surfaces — light */
+  --surface-canvas:  #EDF0F3;   /* cool paper, the infinite field */
+  --surface-raised:  #FFFFFF;   /* cards, panels */
+  --surface-sunken:  #E2E6EB;   /* wells, column backgrounds */
+  --line:            #CBD2DA;   /* hairlines, 1px */
+  --line-strong:     #9AA5B1;
+  --ink:             #17202A;
+  --ink-muted:       #5B6874;
+
+  /* card colours — steel temper series */
+  --temper-straw:    #E0A82E;
+  --temper-bronze:   #C2703C;
+  --temper-copper:   #A94E3B;
+  --temper-purple:   #6E4B7E;
+  --temper-blue:     #2F5C8C;
+  --temper-teal:     #2A7E76;
+  --temper-slate:    #64748B;   /* the default, uncoloured card */
+
+  /* semantics */
+  --edge-relates:    #9AA5B1;
+  --edge-depends:    #2F5C8C;
+  --edge-blocks:     #A94E3B;
+  --edge-derives:    #6E4B7E;
+  --focus:           #2F5C8C;
+
+  /* derived — the few measurements that appear in more than one place */
+  --radius:          6px;
+  --panel-w:         380px;
+  --topbar-h:        48px;
+  --sidebar-w:       288px;
+}
+
+[data-theme='dark'] {
+  --surface-canvas:  #14181D;
+  --surface-raised:  #1D232A;
+  --surface-sunken:  #0F1317;
+  --line:            #2C343D;
+  --line-strong:     #4A5561;
+  --ink:             #E6EAEE;
+  --ink-muted:       #98A3AE;
+
+  /*
+   * The temper series is deliberately unchanged: those seven oxides were picked
+   * to stay distinguishable at 10% zoom, and they read on both grounds. Only the
+   * two darkest semantics and the focus ring are lifted, because a #2F5C8C
+   * hairline on a #14181D field is a line nobody can see.
+   */
+  --edge-depends:    #4E82BE;
+  --edge-derives:    #9C74AE;
+  --focus:           #6BA3E0;
+}

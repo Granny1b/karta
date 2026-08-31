@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json.schemastore.org/staticwebapp.config.json",
+  "platform": {
+    "apiRuntime": "node:20"
+  },
+  "routes": [
+    { "route": "/no-access.html", "allowedRoles": ["anonymous"] },
+    { "route": "/login", "rewrite": "/.auth/login/aad", "allowedRoles": ["anonymous"] },
+    { "route": "/logout", "redirect": "/.auth/logout" },
+    { "route": "/.auth/login/twitter", "statusCode": 404 },
+    { "route": "/.auth/login/facebook", "statusCode": 404 },
+    { "route": "/.auth/login/google", "statusCode": 404 },
+    { "route": "/api/*", "allowedRoles": ["member"] },
+    { "route": "/*", "allowedRoles": ["member"] }
+  ],
+  "responseOverrides": {
+    "401": { "statusCode": 302, "redirect": "/login" },
+    "403": { "rewrite": "/no-access.html" }
+  },
+  "auth": {
+    "identityProviders": {
+      "azureActiveDirectory": {
+        "registration": {
+          "openIdIssuer": "https://login.microsoftonline.com/common/v2.0"
+        }
+      }
+    }
+  },
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/assets/*"]
+  },
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "mimeTypes": {
+    ".json": "application/json",
+    ".webp": "image/webp"
+  }
+}
