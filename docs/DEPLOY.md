@@ -1,7 +1,11 @@
 # First deployment
 
-Everything lives in one resource group in Sweden Central, so a single budget and a single
-delete cover the whole system. You need the Azure CLI (`az version` ≥ 2.60, which bundles
+Everything lives in one resource group, so a single budget and a single delete cover the whole
+system. The storage account is in Sweden Central; the Static Web App is in West Europe, because
+Static Web Apps is a regional service offered in five regions only and Sweden Central is not one
+of them. Board documents, media and snapshots therefore stay in Sweden — only the app shell and
+the managed Functions sit in West Europe. Override `swaLocation` to move it (allowed:
+`westeurope`, `centralus`, `eastus2`, `westus2`, `eastasia`). You need the Azure CLI (`az version` ≥ 2.60, which bundles
 Bicep) and permission to create resources in the subscription.
 
 Run these from the repo root.
@@ -19,6 +23,9 @@ az account show --query "{name:name, id:id}" -o table
 ```bash
 az group create --name rg-karta-prod --location swedencentral
 ```
+
+The resource group's own location is only where its metadata lives; it does not constrain what
+goes in it.
 
 ## 3. Deploy the infrastructure
 
@@ -59,6 +66,15 @@ az deployment group show -g rg-karta-prod -n karta-infra --query properties.outp
 > The CORS rule names the SWA hostname directly (`swa.properties.defaultHostname`), and the
 > template declares the Static Web App before the blob service, so the first deployment already
 > writes the real origin. No second pass is needed for this.
+
+> If the deployment fails with `LocationNotAvailableForResourceType` naming
+> `Microsoft.Web/staticSites`, the service's region list has changed. Check the current one and
+> pass a region from it as `swaLocation`:
+>
+> ```bash
+> az provider show -n Microsoft.Web \
+>   --query "resourceTypes[?resourceType=='staticSites'].locations" -o json
+> ```
 
 ## 4. Put the deployment token in GitHub
 

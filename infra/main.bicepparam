@@ -3,6 +3,10 @@
 using './main.bicep'
 
 param location = 'swedencentral'
+
+// Static Web Apps is not offered in Sweden Central. West Europe is the nearest region that
+// carries it; the board data stays in `location` above.
+param swaLocation = 'westeurope'
 param appName = 'karta'
 param repositoryUrl = 'https://github.com/OWNER/karta'
 param branch = 'main'

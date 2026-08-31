@@ -17,8 +17,22 @@
 
 targetScope = 'resourceGroup'
 
-@description('Azure region for all resources.')
+@description('Azure region for the storage account and the budget. Board documents, media and snapshots live here.')
 param location string = 'swedencentral'
+
+@description('''Azure region for the Static Web App. Static Web Apps is a regional service that is NOT
+offered in every region — Sweden Central is not among them — so the SWA sits in the nearest region that
+does offer it while the data stays in `location`. The allowed list is the service's own; if a deployment
+fails with LocationNotAvailableForResourceType, check the current list with
+`az provider show -n Microsoft.Web --query "resourceTypes[?resourceType=='staticSites'].locations" -o json`.''')
+@allowed([
+  'westeurope'
+  'centralus'
+  'eastus2'
+  'westus2'
+  'eastasia'
+])
+param swaLocation string = 'westeurope'
 
 @description('Short app name. Used for the storage account prefix and the SWA name.')
 // Storage names are capped at 24 characters: 'st' + appName + a 13-character uniqueString.
@@ -53,11 +67,17 @@ var containerNames = [boardsContainer, mediaContainer, snapshotsContainer]
 
 // ---------------------------------------------------------------------------
 // Static Web App (Free) — declared first so the CORS rule below can name it.
+//
+// Region note: this is the one resource that cannot follow `location`. Static Web Apps is
+// offered in five regions only, and Sweden Central is not one of them, so it lives in
+// `swaLocation` (West Europe by default — the nearest to Sweden). The managed Functions run
+// there and reach the storage account cross-region; at a 1.5 s autosave debounce the extra
+// ~25 ms is not observable, and the board data itself stays in `location`.
 // ---------------------------------------------------------------------------
 
 resource swa 'Microsoft.Web/staticSites@2023-12-01' = {
   name: 'swa-${appName}'
-  location: location
+  location: swaLocation
   sku: {
     name: 'Free'
     tier: 'Free'
