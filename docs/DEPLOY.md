@@ -99,6 +99,19 @@ If you ever reset the token (`az staticwebapp secrets reset-api-key`), update th
 
 ## 5. Invite yourself as a `member`
 
+> **Why there is no `auth` block in `staticwebapp.config.json`.** Spec 6.6 shows one that pins
+> `openIdIssuer` to `login.microsoftonline.com/common/v2.0`. Custom authentication is a
+> **Standard SKU** feature, and the deploy fails outright on Free with *"The 'auth' configuration
+> in staticwebapp.config.json is only supported on the Standard SKU"*. It is also redundant: that
+> issuer is the pre-configured Entra provider's own default, so the block set what was already
+> true. Free gives you Entra ID and GitHub pre-configured, which is what spec 6.6's security model
+> already assumes when it says the pre-configured provider lets any Microsoft account sign in and
+> the custom role is the gate. Nothing below changes.
+>
+> The one thing Free cannot do is restrict sign-in to a single Entra tenant. That needs Standard
+> (about €9/month), which the cost model in spec 2 rules out. The `member` role is the gate, so an
+> uninvited Microsoft account gets `no-access.html` and nothing else.
+
 Signing in proves who you are; the custom role `member` is what opens the door. Nobody has it
 until you hand it out.
 
