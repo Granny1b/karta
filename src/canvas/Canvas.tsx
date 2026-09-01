@@ -102,6 +102,8 @@ import {
 } from '@/canvas/alignment';
 import AlignmentGuides, { createGuideTracker } from '@/canvas/AlignmentGuides';
 import { createSubBoardAt } from '@/canvas/createSubBoard';
+import { planBoardDeletion, type DeletionPlan, type DoomedBoard } from '@/canvas/deleteBoards';
+import DeleteBoardsDialog from '@/canvas/DeleteBoardsDialog';
 import {
   describeSelection,
   useSelectionCounts,
@@ -218,6 +220,13 @@ function CanvasSurface(): JSX.Element | null {
   const [connectMenu, setConnectMenu] = useState<ConnectMenuState | null>(null);
   /** Where the selection menu was opened, in the wrapper's own pixels. */
   const [selectionMenu, setSelectionMenu] = useState<XYPosition | null>(null);
+
+  /** A delete waiting on the "this board is not empty" question. */
+  const [pendingDelete, setPendingDelete] = useState<{
+    nodeIds: Id[];
+    edgeIds: Id[];
+    plan: DeletionPlan;
+  } | null>(null);
 
   // Escape reads the menu without listing it as a dependency, so the keyboard
   // handlers are built once instead of once per frame.
@@ -774,6 +783,51 @@ function CanvasSurface(): JSX.Element | null {
 
   /* --- keyboard ---------------------------------------------------------- */
 
+  /**
+   * Remove the nodes and edges, and the boards behind any links among them.
+   *
+   * A link is a doorway and the board is the room: deleting the tile deletes
+   * the board too, which is what "delete this" means when the tile is the only
+   * thing on the canvas representing it. A board with anything on it stops for
+   * a question first, because a tile the size of a card can be hiding a great
+   * deal of work.
+   */
+  const purge = useCallback(
+    async (nodeIds: Id[], edgeIds: Id[], boards: readonly DoomedBoard[]): Promise<void> => {
+      const store = useBoardStore.getState();
+      if (nodeIds.length > 0) store.removeNodes(nodeIds);
+      if (edgeIds.length > 0) store.removeEdges(edgeIds);
+
+      const deletable = boards.filter((b) => b.known);
+      if (deletable.length === 0) return;
+
+      // The nodes are already gone locally; the boards are separate documents
+      // and each needs its own call. One failure must not hide the others, so
+      // they are settled together and reported once.
+      const results = await Promise.allSettled(deletable.map((b) => api.deleteBoard(b.boardId)));
+      const failed = results.filter((r) => r.status === 'rejected').length;
+
+      await store.loadIndex();
+
+      const ui = useUiStore.getState();
+      if (failed > 0) {
+        ui.toast(
+          failed === deletable.length
+            ? 'The links were removed, but the boards could not be deleted.'
+            : `${failed} of ${deletable.length} boards could not be deleted.`,
+          'error',
+        );
+      } else {
+        ui.toast(
+          deletable.length === 1
+            ? 'Board deleted. Storage keeps it for 14 days.'
+            : `${deletable.length} boards deleted. Storage keeps them for 14 days.`,
+        );
+      }
+    },
+    [],
+  );
+
   const removeSelection = useCallback((): void => {
     const store = useBoardStore.getState();
     const current = store.doc;
@@ -781,9 +835,17 @@ function CanvasSurface(): JSX.Element | null {
     const locked = new Set(current.nodes.filter((node) => node.locked).map((node) => node.id));
     const nodeIds = selection.nodeIds().filter((id) => !locked.has(id));
     const edgeIds = selection.edgeIds();
-    if (nodeIds.length > 0) store.removeNodes(nodeIds);
-    if (edgeIds.length > 0) store.removeEdges(edgeIds);
-  }, [selection]);
+    if (nodeIds.length === 0 && edgeIds.length === 0) return;
+
+    const plan = planBoardDeletion(nodeIds, current.nodes, store.index);
+    if (plan.withContent.length > 0) {
+      // Hold the whole gesture until the question is answered, so a cancel
+      // leaves the canvas exactly as it was.
+      setPendingDelete({ nodeIds, edgeIds, plan });
+      return;
+    }
+    void purge(nodeIds, edgeIds, plan.boards);
+  }, [purge, selection]);
 
   const duplicateSelection = useCallback((): void => {
     const store = useBoardStore.getState();
@@ -1208,6 +1270,24 @@ function CanvasSurface(): JSX.Element | null {
 
             {selectionMenu && (
               <SelectionMenu x={selectionMenu.x} y={selectionMenu.y} onClose={closeSelectionMenu} />
+            )}
+
+            {pendingDelete && (
+              <DeleteBoardsDialog
+                boards={pendingDelete.plan.withContent}
+                onCancel={() => setPendingDelete(null)}
+                onKeepBoards={() => {
+                  const { nodeIds, edgeIds } = pendingDelete;
+                  setPendingDelete(null);
+                  // The doorway goes, the rooms stay: no board ids passed.
+                  void purge(nodeIds, edgeIds, []);
+                }}
+                onDeleteBoards={async () => {
+                  const { nodeIds, edgeIds, plan } = pendingDelete;
+                  setPendingDelete(null);
+                  await purge(nodeIds, edgeIds, plan.boards);
+                }}
+              />
             )}
           </div>
         </NodeCreatedContext.Provider>

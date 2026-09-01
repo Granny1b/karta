@@ -792,14 +792,6 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
     const doomed = new Set(ids);
     const orphans: string[] = [];
 
-    // A board link is a doorway, not the room. Deleting it must not delete the
-    // board — that would destroy work from a gesture that looks like tidying a
-    // canvas — but saying nothing leaves the board in the sidebar looking like
-    // a delete that failed. Counted before the mutation, while the nodes exist.
-    const doorways = (get().doc?.nodes ?? []).filter(
-      (n) => doomed.has(n.id) && n.kind === 'boardLink',
-    ).length;
-
     get().mutate(ids.length === 1 ? 'Delete node' : `Delete ${ids.length} nodes`, (d) => {
       const removed = d.nodes.filter((n) => doomed.has(n.id));
       if (removed.length === 0) return;
@@ -834,16 +826,6 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
         if (kept.length !== d.media.length) d.media = kept;
       }
     });
-
-    if (doorways > 0) {
-      useUiStore
-        .getState()
-        .toast(
-          doorways === 1
-            ? 'Link removed. The board itself is still in the sidebar — delete it there to remove it.'
-            : `${doorways} links removed. Those boards are still in the sidebar — delete them there to remove them.`,
-        );
-    }
 
     if (orphans.length > 0) {
       const seen = new Set(get().pendingOrphans);
