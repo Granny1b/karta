@@ -254,6 +254,30 @@ const run = { key: '', count: 0 };
  * The only React Flow state read is `domNode`, which changes once per board —
  * subscribing to it costs nothing while the marquee is redrawing every frame.
  */
+/**
+ * The middle of what the user is looking at, in flow coordinates.
+ *
+ * Shared by the palette's click-to-place and by anything else that has to put
+ * something where the eye already is. Falls back to the viewport transform when
+ * the canvas has no measured box yet, which is the case on first paint.
+ */
+export function useViewCentre(): () => Point {
+  const { screenToFlowPosition, getViewport } = useReactFlow();
+  const domNode = useStore((state) => state.domNode);
+
+  return useCallback((): Point => {
+    const rect = domNode?.getBoundingClientRect();
+    if (rect && rect.width > 0) {
+      return screenToFlowPosition({
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      });
+    }
+    const viewport = getViewport();
+    return { x: -viewport.x / viewport.zoom, y: -viewport.y / viewport.zoom };
+  }, [domNode, getViewport, screenToFlowPosition]);
+}
+
 export function usePlaceAtCentre(): (choice: ConnectChoice) => BoardNode | null {
   const { screenToFlowPosition, getViewport } = useReactFlow();
   const domNode = useStore((state) => state.domNode);

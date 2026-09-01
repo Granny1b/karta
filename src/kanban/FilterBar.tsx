@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import type { Id } from '@/domain/board';
 import { colorValue } from '@/lib/colors';
+import LabelEditor from '@/card/LabelEditor';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
 
@@ -16,6 +17,7 @@ export default function FilterBar(): JSX.Element {
   const setFilter = useUiStore((s) => s.setFilter);
   const clearFilter = useUiStore((s) => s.clearFilter);
   const active = useUiStore((s) => s.filterActive());
+  const [labelEditorOpen, setLabelEditorOpen] = useState(false);
 
   const labels = doc?.labels ?? [];
   const statuses = doc ? [...doc.statuses].sort((a, b) => a.order - b.order) : [];
@@ -43,6 +45,14 @@ export default function FilterBar(): JSX.Element {
       </div>
 
       <Dropdown label="Labels" count={filter.labelIds.length} disabled={labels.length === 0}>
+        {/* Where labels are used is also where a stale one is noticed. */}
+        <button
+          type="button"
+          onClick={() => setLabelEditorOpen(true)}
+          className="mb-1 w-full border-b border-line px-2 pb-1.5 pt-1 text-left text-[12px] text-ink-muted hover:text-ink"
+        >
+          Manage labels
+        </button>
         {labels.map((label) => (
           <Option
             key={label.id}
@@ -88,6 +98,8 @@ export default function FilterBar(): JSX.Element {
           Clear the filter
         </button>
       ) : null}
+
+      {labelEditorOpen ? <LabelEditor onClose={() => setLabelEditorOpen(false)} /> : null}
     </div>
   );
 }

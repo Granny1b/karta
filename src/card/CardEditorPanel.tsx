@@ -33,6 +33,7 @@ import { cardNodes } from '@/state/selectors';
 import { useMediaUrl } from '@/media/mediaUrl';
 import Checklist from '@/card/Checklist';
 import ColorSwatches, { type ColorValue } from '@/card/ColorSwatches';
+import LabelEditor from '@/card/LabelEditor';
 import LabelPicker from '@/card/LabelPicker';
 import Markdown from '@/card/Markdown';
 import { useDraft } from '@/card/useDraft';
@@ -229,6 +230,7 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
 
   const [preview, setPreview] = useState(() => card.body.trim().length > 0);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [labelEditorOpen, setLabelEditorOpen] = useState(false);
 
   const title = useDraft(card.title, (value) =>
     updateNode(card.id, { title: capText(value, MAX_TITLE) }, 'Edit title'),
@@ -382,6 +384,19 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
             onToggle={toggleLabel}
             onCreate={createLabel}
           />
+          {/*
+            The picker only ever made labels, so a typo was permanent and the
+            board slowly filled with them. This is the way back out.
+          */}
+          {doc.labels.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setLabelEditorOpen(true)}
+              className="mt-1 text-[12px] text-ink-muted underline-offset-2 hover:text-ink hover:underline"
+            >
+              Manage labels
+            </button>
+          ) : null}
         </Field>
 
         <Field label="Colour">
@@ -503,6 +518,8 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
           </button>
         )}
       </footer>
+
+      {labelEditorOpen ? <LabelEditor onClose={() => setLabelEditorOpen(false)} /> : null}
     </Panel>
   );
 }

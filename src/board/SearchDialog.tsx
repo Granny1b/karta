@@ -3,6 +3,7 @@ import { LayoutGrid, Square } from 'lucide-react';
 import type { Id } from '@/domain/board';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
+import { SHAPE_LABEL } from '@/canvas/shapes';
 import { cardNodes } from '@/state/selectors';
 import { navigateToBoard } from '@/routes';
 import Dialog from '@/components/Dialog';
@@ -105,6 +106,36 @@ export default function SearchDialog(): JSX.Element {
       });
     }
 
+    // Everything else on the board that carries words. Cards came first and
+    // still outrank the rest, but a sticky, a heading or a labelled shape is a
+    // thing the user put there and expects to be able to find again.
+    for (const node of doc?.nodes ?? []) {
+      let text: string | null = null;
+      let kindLabel = '';
+      if (node.kind === 'note') {
+        text = node.text;
+        kindLabel = 'Note';
+      } else if (node.kind === 'text') {
+        text = node.text;
+        kindLabel = 'Text';
+      } else if (node.kind === 'shape') {
+        text = node.label;
+        kindLabel = SHAPE_LABEL[node.shape];
+      }
+      if (text === null) continue;
+
+      const value = score(text, needle, 12);
+      if (value === 0) continue;
+      found.push({
+        key: `node:${node.id}`,
+        kind: 'card',
+        id: node.id,
+        title: text.trim().split('\n')[0]?.slice(0, 80) || kindLabel,
+        detail: `${kindLabel} on ${boardTitle}`,
+        score: value,
+      });
+    }
+
     return found.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, LIMIT);
   }, [boards, doc, query]);
 
@@ -145,7 +176,7 @@ export default function SearchDialog(): JSX.Element {
         <input
           ref={input}
           value={query}
-          placeholder="Board titles, and cards on this board"
+          placeholder="Board titles, and anything on this board"
           aria-label="Search boards and cards"
           onChange={(e) => setQuery(e.target.value)}
           className="w-full rounded-[var(--radius)] border border-line bg-raised px-2 py-1.5 text-[15px] text-ink outline-none placeholder:text-ink-muted focus:border-[var(--focus)]"
