@@ -261,7 +261,7 @@ type Id = string;          // ULID — sortable, 26 chars
 type Iso = string;         // ISO 8601 UTC
 
 interface BoardDoc {
-  schemaVersion: 4;
+  schemaVersion: 5;
   id: Id;
   parentBoardId: Id | null;
   title: string;
@@ -456,7 +456,7 @@ exists so the sidebar tree and the `boardLink` rollups cost one blob read instea
 
 ```ts
 interface BoardIndex {
-  schemaVersion: 4;
+  schemaVersion: 5;
   updatedAt: Iso;
   boards: BoardSummary[];
 }
@@ -731,6 +731,15 @@ any other node to create an edge. Drop on empty canvas to get a menu at the poin
 note, text, any of the twelve shapes, *Cancel* — so the arrow gesture is also the fastest way to
 create the next thing. Right-clicking bare canvas opens the same menu with nothing to connect
 to. Default semantic is `relates`; changing it is a click on the edge.
+
+**Adjusting arrows:** selecting an arrow puts draw.io's grips on it. A hollow dot sits at the middle
+of every segment — drag one and a bend is created there. A solid dot is a bend already placed: drag
+it to move it, double-click to take it out, or use *Straighten* on the edge toolbar to remove them
+all at once. Bends snap to the 8 px grid unless `Alt` is held, and the whole gesture is one undo
+entry. Either end of an arrow can be dragged onto another node; the bends stay where they are,
+because they were placed against the board rather than against the endpoint. An arrow with bends is
+routed by `src/canvas/edgePath.ts` rather than React Flow, whose path helpers know only two
+endpoints.
 
 **The palette:** a rail in the top-left corner holding the three card kinds, with the twelve
 shapes in a grid that expands under it. Every cell can be dragged onto the field or clicked to

@@ -25,6 +25,7 @@ import {
   MAX_CARD_BODY,
   MAX_CHECKLIST_TEXT,
   MAX_EDGE_LABEL,
+  MAX_WAYPOINTS,
   MAX_ICON,
   MAX_MEDIA_BYTES,
   MAX_NAME,
@@ -594,7 +595,33 @@ function checkEdges(e: ErrorBag, v: unknown, nodeIds: Set<Id>): void {
     checkEnum(e, `${p}.routing`, entry['routing'], ROUTINGS);
     checkNullableString(e, `${p}.label`, entry['label'], MAX_EDGE_LABEL);
     checkColor(e, `${p}.color`, entry['color']);
+    checkWaypoints(e, `${p}.waypoints`, entry['waypoints']);
     checkIso(e, `${p}.updatedAt`, entry['updatedAt']);
+  });
+}
+
+/**
+ * The bends the user placed on an arrow. Coordinates are unbounded by design —
+ * the canvas is infinite — but they must be finite numbers, because a NaN here
+ * renders as a path the browser silently drops and the arrow simply vanishes.
+ */
+function checkWaypoints(e: ErrorBag, path: string, v: unknown): void {
+  if (!Array.isArray(v)) {
+    e.add(path, 'must be an array');
+    return;
+  }
+  if (v.length > MAX_WAYPOINTS) {
+    e.add(path, `holds more than ${MAX_WAYPOINTS} points`);
+    return;
+  }
+  v.forEach((point, i) => {
+    const at = `${path}[${i}]`;
+    if (!isRecord(point)) {
+      e.add(at, 'must be an object');
+      return;
+    }
+    checkNumber(e, `${at}.x`, point['x']);
+    checkNumber(e, `${at}.y`, point['y']);
   });
 }
 

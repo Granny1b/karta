@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { CornerDownRight, Minus, Spline, Trash2 } from 'lucide-react';
+import { CornerDownRight, Minus, Slash, Spline, Trash2 } from 'lucide-react';
+import { clearWaypoints } from '@/canvas/edges/WaypointHandles';
 import type { ColorToken, Edge, EdgeRouting, EdgeSemantic } from '@/domain/board';
 import { TEMPER_TOKENS, colorValue, edgeColor } from '@/lib/colors';
 import { useBoardStore } from '@/state/boardStore';
@@ -140,6 +141,17 @@ export default function EdgeToolbar({ edge }: { edge: Edge }): JSX.Element {
             }
           }}
         />
+        {edge.waypoints.length > 0 && (
+          <button
+            type="button"
+            title={`Straighten (remove ${edge.waypoints.length} bend${edge.waypoints.length === 1 ? '' : 's'})`}
+            aria-label="Straighten arrow"
+            className="karta-tool-btn karta-tool-icon"
+            onClick={() => clearWaypoints(edge.id)}
+          >
+            <Slash size={13} />
+          </button>
+        )}
         <button
           type="button"
           title="Delete arrow"

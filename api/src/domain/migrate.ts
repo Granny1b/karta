@@ -105,11 +105,33 @@ const v3ToV4 = (raw: RawDoc): RawDoc => {
   return changed ? { ...raw, edges: next } : raw;
 };
 
+/**
+ * 4 → 5: arrows carry their own bends.
+ *
+ * An edge written before this has no `waypoints`, and the field is required, so
+ * every stored edge gets an empty list. Empty means exactly what it did before:
+ * the router owns the whole path.
+ */
+const v4ToV5 = (raw: RawDoc): RawDoc => {
+  const edges = raw['edges'];
+  if (!Array.isArray(edges)) return raw;
+
+  let changed = false;
+  const next = edges.map((edge) => {
+    if (!isRecord(edge) || Array.isArray(edge['waypoints'])) return edge;
+    changed = true;
+    return { ...edge, waypoints: [] };
+  });
+
+  return changed ? { ...raw, edges: next } : raw;
+};
+
 /** `version` -> function producing the shape of `version + 1`. */
 const MIGRATIONS: ReadonlyMap<number, (raw: RawDoc) => RawDoc> = new Map([
   [1, v1ToV2],
   [2, v2ToV3],
   [3, v3ToV4],
+  [4, v4ToV5],
 ]);
 
 const isRecord = (v: unknown): v is RawDoc => typeof v === 'object' && v !== null && !Array.isArray(v);

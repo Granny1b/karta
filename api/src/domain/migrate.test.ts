@@ -211,3 +211,61 @@ describe('3 -> 4: stepped arrows', () => {
     expect(doc.edges[0]?.routing).toBe('smoothstep');
   });
 });
+
+describe('4 -> 5: arrows carry their own bends', () => {
+  const v4 = (edge: Record<string, unknown>): unknown => ({
+    schemaVersion: 4,
+    id: '01J0000000000000000000000A',
+    parentBoardId: null,
+    title: 'Systems',
+    icon: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    deletedAt: null,
+    acl: { ownerId: 'u1', editorIds: [], viewerIds: [] },
+    viewport: { x: 0, y: 0, zoom: 1 },
+    statuses: [],
+    labels: [],
+    nodes: [],
+    edges: [
+      {
+        id: 'E0',
+        source: 'a',
+        sourceHandle: 'right',
+        target: 'b',
+        targetHandle: 'left',
+        semantic: 'depends',
+        label: null,
+        routing: 'smoothstep',
+        color: null,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        ...edge,
+      },
+    ],
+    media: [],
+  });
+
+  it('gives an edge written before bends existed an empty list', () => {
+    const doc = migrate(v4({}));
+    expect(doc.edges[0]?.waypoints).toEqual([]);
+  });
+
+  it('leaves bends that are already there alone', () => {
+    const bends = [{ x: 10, y: 20 }];
+    const doc = migrate(v4({ waypoints: bends }));
+    expect(doc.edges[0]?.waypoints).toEqual(bends);
+  });
+
+  it('carries a v1 board through every step in one read', () => {
+    const raw = v4({}) as Record<string, unknown>;
+    raw['schemaVersion'] = 1;
+    raw['statuses'] = [{ id: 'S', name: 'Klar', color: 'teal', order: 0, isDone: true }];
+    (raw['edges'] as Record<string, unknown>[])[0]!['routing'] = 'bezier';
+
+    const doc = migrate(raw);
+    expect(doc.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(doc.statuses[0]?.name).toBe('Done');
+    expect(doc.edges[0]?.routing).toBe('smoothstep');
+    expect(doc.edges[0]?.waypoints).toEqual([]);
+  });
+});

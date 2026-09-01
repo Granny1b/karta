@@ -21,6 +21,7 @@ import {
   applyNodeChanges,
   useKeyPress,
   useReactFlow,
+  type Connection,
   useStore,
   type EdgeChange,
   type IsValidConnection,
@@ -60,8 +61,9 @@ import SelectionMenu, {
 import EmptyCanvasHint from '@/board/EmptyCanvasHint';
 import { collectForClipboard, holdForClipboard, payloadForMarker } from '@/canvas/clipboard';
 import { extractToBoard } from '@/canvas/extract';
-import { syncFlowEdges, syncFlowNodes } from '@/canvas/mapping';
+import { isHandleSide, syncFlowEdges, syncFlowNodes } from '@/canvas/mapping';
 import {
+  hasEdgeBetween,
   CONNECT_DRAG_THRESHOLD,
   REFUSAL_TEXT,
   choiceSize,
@@ -490,6 +492,40 @@ function CanvasSurface(): JSX.Element | null {
       commitPositions(moved);
     },
     [commitPositions, guides],
+  );
+
+  /**
+   * Dragging an arrow's end onto another node, which React Flow calls
+   * reconnection. The bends stay where they are: they were placed relative to
+   * the board, not to the endpoint, and silently discarding them because the
+   * far end moved would be the opposite of adjustable.
+   */
+  const onReconnect = useCallback(
+    (oldEdge: KartaFlowEdge, connection: Connection): void => {
+      const source = connection.source;
+      const target = connection.target;
+      if (source === null || target === null || source === target) return;
+
+      const store = useBoardStore.getState();
+      // The edge being moved is not its own duplicate.
+      const others = (store.doc?.edges ?? []).filter((e) => e.id !== oldEdge.id);
+      if (hasEdgeBetween(others, source, target)) {
+        useUiStore.getState().toast('Those two are already joined that way', 'warn');
+        return;
+      }
+
+      store.updateEdge(
+        oldEdge.id,
+        {
+          source,
+          target,
+          sourceHandle: isHandleSide(connection.sourceHandle) ? connection.sourceHandle : 'right',
+          targetHandle: isHandleSide(connection.targetHandle) ? connection.targetHandle : 'left',
+        },
+        'Reconnect arrow',
+      );
+    },
+    [],
   );
 
   const onMoveEnd = useCallback((_event: unknown, viewport: Viewport): void => {
@@ -1106,6 +1142,7 @@ function CanvasSurface(): JSX.Element | null {
               edges={flowEdges}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
+              onReconnect={onReconnect}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeDragStart={onNodeDragStart}

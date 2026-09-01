@@ -12,6 +12,8 @@ import type { Edge } from '@/domain/board';
 import { EDGE_STYLE, edgeColor } from '@/lib/colors';
 import EdgeToolbar from '@/canvas/EdgeToolbar';
 import { cx } from '@/canvas/cx';
+import { routeThrough } from '@/canvas/edgePath';
+import WaypointHandles from '@/canvas/edges/WaypointHandles';
 import { useSoleEdgeSelected } from '@/canvas/soleSelection';
 import type { KartaFlowEdge } from '@/canvas/types';
 
@@ -62,12 +64,35 @@ function SemanticEdgeView({
     targetPosition,
   };
 
-  const [path, labelX, labelY] =
+  // An edge the user has bent is routed here rather than by React Flow, whose
+  // path helpers know only two endpoints. An unbent one keeps the library's
+  // geometry, so nothing about the ordinary case changes.
+  const bent = edge.waypoints.length > 0;
+  const custom = bent
+    ? routeThrough({
+        source: { x: sourceX, y: sourceY },
+        target: { x: targetX, y: targetY },
+        sourceSide: edge.sourceHandle,
+        targetSide: edge.targetHandle,
+        waypoints: edge.waypoints,
+        stepped: edge.routing !== 'straight',
+      })
+    : null;
+
+  const [libraryPath, libraryLabelX, libraryLabelY] =
     edge.routing === 'straight'
       ? getStraightPath({ sourceX, sourceY, targetX, targetY })
       : edge.routing === 'smoothstep'
         ? getSmoothStepPath({ ...geometry, borderRadius: 8 })
         : getBezierPath(geometry);
+
+  const path = custom?.path ?? libraryPath;
+  const points = custom?.points ?? [];
+  // The label rides the middle bend of a bent edge, so it does not sit on top
+  // of a corner it has nothing to do with.
+  const middle = bent ? points[Math.floor(points.length / 2)] : undefined;
+  const labelX = middle?.x ?? libraryLabelX;
+  const labelY = middle?.y ?? libraryLabelY;
 
   // The words the arrow carries, once they are big enough to be words.
   const chip =
@@ -85,6 +110,9 @@ function SemanticEdgeView({
         className={cx('karta-edge-halo', selected === true && 'is-on')}
         strokeWidth={look.width + HALO_SPREAD}
       />
+      {selected === true && (
+        <WaypointHandles edge={edge} points={points.length > 0 ? points : []} />
+      )}
       <BaseEdge
         path={path}
         markerEnd={markerEnd}

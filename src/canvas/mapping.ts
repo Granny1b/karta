@@ -10,6 +10,15 @@ const Z_NODE = 2;
 
 export const HANDLE_SIDES: readonly HandleSide[] = ['top', 'right', 'bottom', 'left'];
 
+/**
+ * React Flow reports a handle id as a loose string, and a reconnection can
+ * arrive with none at all. This is the guard back into the four sides the
+ * document actually stores.
+ */
+export function isHandleSide(value: unknown): value is HandleSide {
+  return value === 'top' || value === 'right' || value === 'bottom' || value === 'left';
+}
+
 export const HANDLE_POSITION: Record<HandleSide, Position> = {
   top: Position.Top,
   right: Position.Right,
@@ -61,6 +70,7 @@ export function toFlowEdge(edge: BoardEdge): KartaFlowEdge {
     id: edge.id,
     source: edge.source,
     target: edge.target,
+    reconnectable: true,
     sourceHandle: edge.sourceHandle,
     targetHandle: edge.targetHandle,
     type: 'semantic',

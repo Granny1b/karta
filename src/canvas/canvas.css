@@ -579,3 +579,49 @@
   opacity: 0.75;
   transform-origin: 0 0;
 }
+
+/*
+ * Arrow grips (draw.io's vocabulary).
+ *
+ * A solid dot is a bend the user placed; a hollow one sits at the middle of a
+ * segment and becomes a bend when dragged. Both are drawn only while the edge
+ * is selected, so an ordinary board shows none of them.
+ *
+ * The hit area is deliberately larger than the dot: a 5 px circle is accurate
+ * to look at and miserable to grab, which is the whole complaint about stock
+ * handles that this replaces.
+ */
+.karta-edge-grips {
+  pointer-events: all;
+}
+
+.karta-edge-grip {
+  fill: var(--surface-raised);
+  stroke: var(--focus);
+  stroke-width: 1.5;
+  cursor: grab;
+  paint-order: stroke;
+  stroke-linejoin: round;
+}
+
+.karta-edge-grip:active {
+  cursor: grabbing;
+}
+
+.karta-edge-grip.is-ghost {
+  fill: var(--surface-raised);
+  stroke: var(--line-strong);
+  opacity: 0.55;
+}
+
+.karta-edge-grip.is-ghost:hover {
+  opacity: 1;
+  stroke: var(--focus);
+}
+
+/* The invisible disc that actually catches the pointer. */
+.karta-edge-grip-hit {
+  fill: transparent;
+  stroke: none;
+  cursor: grab;
+}
