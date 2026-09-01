@@ -21,6 +21,21 @@ import { useUiStore } from '@/state/uiStore';
  * the board still exists and is in the sidebar, which is recoverable; a link
  * pointing at a board that was never created is not.
  */
+/**
+ * The link node that should open its name field the moment it appears.
+ *
+ * Read once and cleared, so a tile only ever does this for the creation that
+ * asked for it — a re-render, or the node arriving again after a reload, must
+ * not reopen a field the user has already closed.
+ */
+let renameOnMount: Id | null = null;
+
+export function takeRenameOnMount(nodeId: Id): boolean {
+  if (renameOnMount !== nodeId) return false;
+  renameOnMount = null;
+  return true;
+}
+
 export async function createSubBoardAt(
   position: { x: number; y: number },
   title = 'New board',
@@ -61,6 +76,12 @@ export async function createSubBoardAt(
     // breadcrumb at all, not merely a shorter one. `api.createBoard` updates
     // the index on the server; this is what makes the client's copy agree.
     await store.loadIndex();
+
+    // A board arrives called "New board", so the one thing the user certainly
+    // wants next is to name it. The tile picks this up as it mounts and opens
+    // its field, which turns creating and naming into one gesture instead of a
+    // creation followed by a hunt for where the rename lives.
+    renameOnMount = link.id;
 
     ui.toast('Nested board added — double-click it to go in');
     return created.doc.id;

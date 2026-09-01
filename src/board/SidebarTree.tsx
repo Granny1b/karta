@@ -4,6 +4,7 @@ import { DEFAULT_NODE_SIZE, type BoardNode, type BoardSummary, type Id } from '@
 import { ApiError, api } from '@/lib/api';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
+import { renameBoard } from '@/board/renameBoard';
 import { makeBoardLink } from '@/state/factories';
 import { boardTree, type TreeNode } from '@/state/selectors';
 import { navigateToBoard } from '@/routes';
@@ -248,18 +249,16 @@ export default function SidebarTree(): JSX.Element | null {
         return;
       }
 
+      // Any other board is the guarded round trip in `renameBoard`, shared with
+      // the board tile on the canvas so the compare-and-swap exists once.
       setBusy(true);
       try {
-        const { doc, etag } = await api.getBoard(id);
-        await api.putBoard(id, { ...doc, title: trimmed }, etag, []);
-        await loadIndex();
-      } catch (err) {
-        report(err, 'Could not rename the board');
+        await renameBoard(id, trimmed);
       } finally {
         setBusy(false);
       }
     },
-    [boardId, loadIndex, mutate, report, save, summaries],
+    [boardId, loadIndex, mutate, save, summaries],
   );
 
   const remove = useCallback(

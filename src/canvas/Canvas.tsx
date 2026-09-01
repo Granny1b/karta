@@ -1264,6 +1264,15 @@ function CanvasSurface(): JSX.Element | null {
                 y={connectMenu.y}
                 title={connectMenu.from === null ? 'Add to the board' : 'Add and connect'}
                 onPick={pickFromConnectMenu}
+                onNewBoard={
+                  connectMenu.from === null
+                    ? () => {
+                        const at = connectMenu.flow;
+                        closeConnectMenu();
+                        void createSubBoardAt(at);
+                      }
+                    : undefined
+                }
                 onCancel={closeConnectMenu}
               />
             )}

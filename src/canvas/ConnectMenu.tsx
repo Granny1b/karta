@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { FolderPlus, X } from 'lucide-react';
 import type { ConnectChoice } from '@/canvas/connect';
 import { PaletteMenuItems } from '@/canvas/Palette';
 
@@ -14,6 +14,12 @@ export interface ConnectMenuProps {
    */
   title?: string;
   onPick(choice: ConnectChoice): void;
+  /**
+   * Offered only when the menu was opened on bare canvas. A nested board is
+   * created on the server before its tile can exist, so it cannot be the target
+   * of the arrow that opened this menu the way the synchronous kinds can.
+   */
+  onNewBoard?: () => void;
   onCancel(): void;
 }
 
@@ -34,6 +40,7 @@ export default function ConnectMenu({
   y,
   title = 'Add and connect',
   onPick,
+  onNewBoard,
   onCancel,
 }: ConnectMenuProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -82,6 +89,24 @@ export default function ConnectMenu({
       </p>
 
       <PaletteMenuItems onPick={(entry) => onPick(entry.choice)} />
+
+      {onNewBoard && (
+        <>
+          <hr className="my-2 border-line" />
+          <button
+            type="button"
+            role="menuitem"
+            className="flex h-7 w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 text-left text-[13px] text-ink transition-colors duration-[var(--dur-fast)] ease-linear hover:bg-[var(--surface-hover)]"
+            onClick={onNewBoard}
+          >
+            <span className="flex h-3.5 w-5 shrink-0 items-center justify-center">
+              <FolderPlus size={14} aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1 truncate">Nested board</span>
+            <span className="shrink-0 text-[11px] leading-none text-ink-muted">B</span>
+          </button>
+        </>
+      )}
 
       <hr className="my-2 border-line" />
 
