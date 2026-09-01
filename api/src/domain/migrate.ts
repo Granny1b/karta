@@ -78,10 +78,38 @@ const v2ToV3 = (raw: RawDoc): RawDoc => {
   return renamed ? { ...raw, statuses: next } : raw;
 };
 
+/**
+ * 3 → 4: arrows are stepped.
+ *
+ * `bezier` was the default routing, and a curve makes it impossible to see
+ * whether two nodes are actually aligned — the whole point of an arrow between
+ * them. Stepped is the default now, and boards already drawn carry the old
+ * value on every edge, so they would keep curving forever.
+ *
+ * Only an edge still holding the old default is changed. An edge explicitly set
+ * to `straight` was a choice and is left alone. A `bezier` that was chosen
+ * deliberately is indistinguishable from one that was never touched, and it is
+ * one click on the edge toolbar to put back.
+ */
+const v3ToV4 = (raw: RawDoc): RawDoc => {
+  const edges = raw['edges'];
+  if (!Array.isArray(edges)) return raw;
+
+  let changed = false;
+  const next = edges.map((edge) => {
+    if (!isRecord(edge) || edge['routing'] !== 'bezier') return edge;
+    changed = true;
+    return { ...edge, routing: 'smoothstep' };
+  });
+
+  return changed ? { ...raw, edges: next } : raw;
+};
+
 /** `version` -> function producing the shape of `version + 1`. */
 const MIGRATIONS: ReadonlyMap<number, (raw: RawDoc) => RawDoc> = new Map([
   [1, v1ToV2],
   [2, v2ToV3],
+  [3, v3ToV4],
 ]);
 
 const isRecord = (v: unknown): v is RawDoc => typeof v === 'object' && v !== null && !Array.isArray(v);

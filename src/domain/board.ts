@@ -25,7 +25,7 @@ export type HexColor = string; // #RRGGBB
  * change is purely additive — no node that existed under 1 changed shape — so
  * the 1 → 2 migration in `api/src/domain/migrate.ts` is an identity step.
  */
-export const SCHEMA_VERSION = 3 as const;
+export const SCHEMA_VERSION = 4 as const;
 
 export interface Viewport {
   x: number;

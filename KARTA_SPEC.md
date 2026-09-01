@@ -261,7 +261,7 @@ type Id = string;          // ULID — sortable, 26 chars
 type Iso = string;         // ISO 8601 UTC
 
 interface BoardDoc {
-  schemaVersion: 3;
+  schemaVersion: 4;
   id: Id;
   parentBoardId: Id | null;
   title: string;
@@ -456,7 +456,7 @@ exists so the sidebar tree and the `boardLink` rollups cost one blob read instea
 
 ```ts
 interface BoardIndex {
-  schemaVersion: 3;
+  schemaVersion: 4;
   updatedAt: Iso;
   boards: BoardSummary[];
 }
@@ -708,7 +708,12 @@ React Flow does the heavy lifting. What is configured:
 - `minZoom: 0.1`, `maxZoom: 2.5`, `zoomOnScroll` with ctrl/cmd, trackpad pinch, `Space` + drag
   to pan, `onlyRenderVisibleElements: true`.
 - Background: dot grid, 24 px, that fades out below zoom 0.4.
-- Snapping: 8 px grid, held off while `Alt` is down.
+- Snapping: 8 px grid, held off while `Alt` is down. On top of it, a single-node drag snaps to the
+  edges and centres of nearby nodes and draws a guide for each line it caught. A node joined to the
+  dragged one by an arrow is matched on its centre alone and with a much wider catch — a handle sits
+  at the midpoint of a side, so centre-to-centre is the only alignment that straightens an arrow,
+  and putting a card back where its arrow runs straight is what the gesture is for. Dragging a
+  selection keeps the plain grid: snapping a group to a neighbour would change its internal spacing.
 - Selection: click, shift-click to add, drag-marquee on empty canvas, `Ctrl+A`.
 - Multi-select drag moves everything selected; arrow keys nudge 8 px, `Shift` + arrows 1 px.
 

@@ -560,3 +560,22 @@
 .karta-canvas .react-flow__attribution a {
   color: var(--ink-muted);
 }
+
+/*
+ * Alignment guides.
+ *
+ * Drawn in flow coordinates inside the viewport portal, so a line sits exactly
+ * where the geometry says it does at any zoom. It is inside the transformed
+ * layer, so the border scales with the camera: sub-pixel when zoomed out, about
+ * two pixels at maximum zoom. That is the right trade here — the guide only
+ * exists during a drag, and a line that stayed a fixed screen width would drift
+ * off the edge it is claiming to be level with.
+ */
+.karta-guide {
+  pointer-events: none;
+  z-index: 4;
+  border-top: 1px solid var(--focus);
+  border-left: 1px solid var(--focus);
+  opacity: 0.75;
+  transform-origin: 0 0;
+}
