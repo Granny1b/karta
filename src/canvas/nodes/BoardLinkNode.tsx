@@ -9,14 +9,15 @@ import {
   type MouseEvent,
 } from 'react';
 import type { NodeProps } from '@xyflow/react';
-import { Pencil, SquareArrowOutUpRight } from 'lucide-react';
+import { Pencil, Settings, SquareArrowOutUpRight } from 'lucide-react';
 import { NodeToolbar, Position } from '@xyflow/react';
-import { MAX_TITLE, capText } from '@/domain/board';
+import { MAX_TITLE, capText, type ColorToken } from '@/domain/board';
 import { renameBoard } from '@/board/renameBoard';
 import { takeRenameOnMount } from '@/canvas/createSubBoard';
 import { useSoleNodeSelected } from '@/canvas/soleSelection';
+import { useBoardStore } from '@/state/boardStore';
 import { isEditableTarget } from '@/lib/keys';
-import { colorValue } from '@/lib/colors';
+import { TEMPER_TOKENS, colorValue } from '@/lib/colors';
 import { cx } from '@/canvas/cx';
 import { useCanvasApi } from '@/canvas/CanvasContext';
 import NodeHandles from '@/canvas/nodes/NodeHandles';
@@ -37,7 +38,29 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
   const [draft, setDraft] = useState<string | null>(null);
   const editing = draft !== null;
   const input = useRef<HTMLInputElement>(null);
+  const gear = useRef<HTMLButtonElement>(null);
   const title = link.cachedTitle.trim().length > 0 ? link.cachedTitle : 'Board';
+
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const setColour = useCallback(
+    (next: ColorToken | null): void => {
+      setMenuOpen(false);
+      useBoardStore.getState().updateNode(link.id, { color: next }, 'Recolour board link');
+    },
+    [link.id],
+  );
+
+  // Clicking away closes it, the way every other menu on the canvas behaves.
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = (event: Event): void => {
+      if (event.target instanceof Node && gear.current?.contains(event.target)) return;
+      setMenuOpen(false);
+    };
+    window.addEventListener('pointerdown', close, true);
+    return () => window.removeEventListener('pointerdown', close, true);
+  }, [menuOpen]);
 
   const beginRename = useCallback((): void => {
     if (link.locked) return;
@@ -130,20 +153,64 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
 
   return (
     <>
-      {/* Renaming is not double-click here — that opens the board — so it needs
-          somewhere to be seen. Only for the tile a keystroke would land on. */}
-      {selected === true && sole && !link.locked && !editing && (
-        <NodeToolbar position={Position.Bottom} offset={10} className="karta-node-toolbar">
-          <div className="karta-toolbar-row">
+      {/*
+        Settings hang off the top-right corner rather than below the tile: the
+        bottom edge belongs to the connection handle, and a button sitting on it
+        is a button fighting the gesture the handle exists for.
+      */}
+      {menuOpen && !link.locked && (
+        <NodeToolbar
+          position={Position.Top}
+          align="end"
+          offset={8}
+          className="karta-node-toolbar"
+          isVisible
+        >
+          <div className="flex flex-col gap-1 p-1" role="menu" aria-label="Board settings">
             <button
               type="button"
-              className="karta-tool-btn karta-tool-icon"
-              title="Rename this board (F2)"
-              aria-label="Rename this board"
-              onClick={beginRename}
+              role="menuitem"
+              className="karta-tool-btn flex h-7 items-center gap-2 px-2 text-left text-[13px]"
+              onClick={() => {
+                setMenuOpen(false);
+                beginRename();
+              }}
             >
-              <Pencil size={13} />
+              <Pencil size={13} aria-hidden />
+              <span className="flex-1">Rename</span>
+              <span className="text-[11px] text-ink-muted">F2</span>
             </button>
+
+            <div className="karta-toolbar-row">
+              <span className="karta-toolbar-label" id={`${link.id}-colour`}>
+                Colour
+              </span>
+              <div
+                className="ml-auto flex items-center gap-1"
+                role="group"
+                aria-labelledby={`${link.id}-colour`}
+              >
+                <button
+                  type="button"
+                  className="karta-swatch"
+                  title="No colour"
+                  aria-label="No colour"
+                  style={{ background: 'var(--surface-raised)' }}
+                  onClick={() => setColour(null)}
+                />
+                {TEMPER_TOKENS.map((token) => (
+                  <button
+                    key={token}
+                    type="button"
+                    className="karta-swatch"
+                    title={token}
+                    aria-label={token}
+                    style={{ background: colorValue(token) }}
+                    onClick={() => setColour(token)}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
         </NodeToolbar>
       )}
@@ -154,6 +221,30 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
       title={editing ? undefined : `${title} — double-click to open, F2 to rename`}
     >
       <span className="karta-colorbar" style={{ background: accent }} aria-hidden />
+
+      {/* Shown on hover or while selected, so a board full of tiles stays a
+          board full of tiles. */}
+      {!link.locked && !editing && (
+        <button
+          ref={gear}
+          type="button"
+          className={cx(
+            'karta-boardlink-gear nodrag',
+            (selected === true || menuOpen) && 'is-on',
+          )}
+          title="Board settings"
+          aria-label="Board settings"
+          aria-expanded={menuOpen}
+          onPointerDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            setMenuOpen((open) => !open);
+          }}
+        >
+          <Settings size={13} aria-hidden />
+        </button>
+      )}
       <div className="flex h-full flex-col justify-center gap-1.5 overflow-hidden py-2 pl-4 pr-2.5">
         <div className="flex items-center gap-1.5">
           <SquareArrowOutUpRight size={14} className="shrink-0 text-ink-muted" aria-hidden />
