@@ -5,10 +5,28 @@ import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
 import { navigateToBoard } from '@/routes';
 
-/** The chain of parents, root first, ending at the open board (spec 7.3). */
-function chainFor(boardId: Id | null, boards: BoardSummary[] | undefined): BoardSummary[] {
-  if (!boardId || !boards) return [];
+/**
+ * The chain of parents, root first, ending at the open board (spec 7.3).
+ *
+ * The walk is only as good as the index it walks. A board the index has not
+ * caught up with — one just created, or created in another tab — used to break
+ * the loop on its very first step and leave *no* breadcrumb at all, which reads
+ * as the feature being broken rather than as one missing ancestor.
+ *
+ * `fallbackTitle` is the open board's own title, which the document always
+ * knows even when the index does not. With it the breadcrumb degrades to the
+ * board you are on instead of vanishing, and fills itself in as soon as the
+ * index arrives.
+ */
+export function chainFor(
+  boardId: Id | null,
+  boards: BoardSummary[] | undefined,
+  fallbackTitle?: string,
+): BoardSummary[] {
+  if (!boardId) return [];
+  if (!boards) return standIn(boardId, fallbackTitle);
   const byId = new Map<Id, BoardSummary>(boards.map((b) => [b.id, b]));
+  if (!byId.has(boardId)) return standIn(boardId, fallbackTitle);
 
   const chain: BoardSummary[] = [];
   const seen = new Set<Id>();
@@ -23,6 +41,23 @@ function chainFor(boardId: Id | null, boards: BoardSummary[] | undefined): Board
   return chain.reverse();
 }
 
+/** The open board alone, for when the index cannot place it yet. */
+function standIn(boardId: Id, title: string | undefined): BoardSummary[] {
+  if (title === undefined) return [];
+  return [
+    {
+      id: boardId,
+      parentBoardId: null,
+      title,
+      icon: null,
+      updatedAt: '',
+      deletedAt: null,
+      counts: { cards: 0, done: 0, children: 0 },
+      ownerId: '',
+    },
+  ];
+}
+
 export default function Breadcrumb(): JSX.Element {
   const boardId = useBoardStore((s) => s.boardId);
   const index = useBoardStore((s) => s.index);
@@ -30,7 +65,7 @@ export default function Breadcrumb(): JSX.Element {
   const mutate = useBoardStore((s) => s.mutate);
   const setSidebarOpen = useUiStore((s) => s.setSidebarOpen);
 
-  const chain = useMemo(() => chainFor(boardId, index?.boards), [boardId, index]);
+  const chain = useMemo(() => chainFor(boardId, index?.boards, title), [boardId, index, title]);
   const ancestors = chain.slice(0, -1);
 
   const [renaming, setRenaming] = useState(false);
