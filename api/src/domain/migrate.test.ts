@@ -34,12 +34,12 @@ describe('migrate', () => {
     const before = stored(1);
     const doc = migrate(before);
 
-    expect(SCHEMA_VERSION).toBe(2);
+    // Deliberately not pinned to a literal: this asserts the walk reaches the
+    // current version, whatever that is, so adding a step does not fail here.
     expect(doc.schemaVersion).toBe(SCHEMA_VERSION);
-    // 1 -> 2 only added node kinds, so nothing already stored changes shape.
+    // No step so far rewrites a node, so everything stored keeps its shape.
     expect(doc.nodes).toEqual(before.nodes);
     expect(doc.id).toBe(BOARD_ID);
-    expect(doc.statuses).toEqual(before.statuses);
   });
 
   it('passes a current document through untouched', () => {
@@ -77,5 +77,76 @@ describe('upgradeToCurrent', () => {
     expect(() => upgradeToCurrent(stored(SCHEMA_VERSION + 1))).toThrow(/Deploy the newer API/);
     expect(() => upgradeToCurrent({ ...stored(1), schemaVersion: 0 })).toThrow(/invalid schemaVersion/);
     expect(() => upgradeToCurrent({})).toThrow(/invalid schemaVersion/);
+  });
+});
+
+describe('2 -> 3: English default statuses', () => {
+  const v2Board = (statuses: Array<{ name: string; id?: string; isDone?: boolean }>): unknown => ({
+    schemaVersion: 2,
+    id: '01J0000000000000000000000A',
+    parentBoardId: null,
+    title: 'Systems',
+    icon: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    deletedAt: null,
+    acl: { ownerId: 'u1', editorIds: [], viewerIds: [] },
+    viewport: { x: 0, y: 0, zoom: 1 },
+    statuses: statuses.map((s, i) => ({
+      id: s.id ?? `S${i}`,
+      name: s.name,
+      color: 'slate',
+      order: i,
+      isDone: s.isDone ?? false,
+    })),
+    labels: [],
+    nodes: [],
+    edges: [],
+    media: [],
+  });
+
+  it('renames a board still carrying the Swedish defaults', () => {
+    const doc = migrate(
+      v2Board([
+        { name: 'Idé' },
+        { name: 'Planerad' },
+        { name: 'Bygger' },
+        { name: 'Testar' },
+        { name: 'Klar', isDone: true },
+      ]),
+    );
+
+    expect(doc.statuses.map((s) => s.name)).toEqual([
+      'Idea',
+      'Planned',
+      'Building',
+      'Testing',
+      'Done',
+    ]);
+    expect(doc.schemaVersion).toBe(3);
+  });
+
+  it('keeps ids, order, colour and isDone, so cards do not change column', () => {
+    const before = v2Board([{ name: 'Bygger', id: 'KEEP' }, { name: 'Klar', id: 'END', isDone: true }]);
+    const doc = migrate(before);
+
+    expect(doc.statuses.map((s) => s.id)).toEqual(['KEEP', 'END']);
+    expect(doc.statuses.map((s) => s.order)).toEqual([0, 1]);
+    expect(doc.statuses[1]?.isDone).toBe(true);
+  });
+
+  it('leaves a status the owner already renamed alone', () => {
+    // Only an exact match of an original default is touched. Anything the owner
+    // chose is theirs, in any language.
+    const doc = migrate(v2Board([{ name: 'Blockerad' }, { name: 'Idé' }, { name: 'Shipped' }]));
+    expect(doc.statuses.map((s) => s.name)).toEqual(['Blockerad', 'Idea', 'Shipped']);
+  });
+
+  it('carries a v1 document all the way to English', () => {
+    const raw = v2Board([{ name: 'Klar', isDone: true }]) as Record<string, unknown>;
+    raw['schemaVersion'] = 1;
+    const doc = migrate(raw);
+    expect(doc.schemaVersion).toBe(3);
+    expect(doc.statuses[0]?.name).toBe('Done');
   });
 });

@@ -24,6 +24,7 @@
 
 import type { BoardDoc } from '../../../src/domain/board.js';
 import { SCHEMA_VERSION } from '../../../src/domain/board.js';
+import { DEFAULT_BOARD_TITLE } from './defaults.js';
 
 type RawDoc = Record<string, unknown>;
 
@@ -36,8 +37,52 @@ type RawDoc = Record<string, unknown>;
  */
 const v1ToV2 = (raw: RawDoc): RawDoc => raw;
 
+/**
+ * 2 → 3: the default statuses are English.
+ *
+ * The board shipped with Swedish column names (Idé → Planerad → Bygger →
+ * Testar → Klar) while the rest of the UI was English — spec Appendix B
+ * question 1, now answered: English throughout. Existing boards carry the old
+ * names in their documents, so a default set left untouched would stay Swedish
+ * forever and every board made from the starter template would need renaming by
+ * hand.
+ *
+ * Only an exact match of one of the five original names is renamed. A status
+ * the owner has already renamed does not match and is left alone, and neither
+ * is a status they deliberately named something else. Colour, order, isDone and
+ * id are untouched, so cards keep their column.
+ */
+const V2_STATUS_NAMES: ReadonlyMap<string, string> = new Map([
+  ['Idé', 'Idea'],
+  ['Planerad', 'Planned'],
+  ['Bygger', 'Building'],
+  ['Testar', 'Testing'],
+  ['Klar', 'Done'],
+]);
+
+const v2ToV3 = (raw: RawDoc): RawDoc => {
+  const statuses = raw['statuses'];
+  if (!Array.isArray(statuses)) return raw;
+
+  let renamed = false;
+  const next = statuses.map((status) => {
+    if (!isRecord(status)) return status;
+    const name = status['name'];
+    if (typeof name !== 'string') return status;
+    const english = V2_STATUS_NAMES.get(name);
+    if (english === undefined) return status;
+    renamed = true;
+    return { ...status, name: english };
+  });
+
+  return renamed ? { ...raw, statuses: next } : raw;
+};
+
 /** `version` -> function producing the shape of `version + 1`. */
-const MIGRATIONS: ReadonlyMap<number, (raw: RawDoc) => RawDoc> = new Map([[1, v1ToV2]]);
+const MIGRATIONS: ReadonlyMap<number, (raw: RawDoc) => RawDoc> = new Map([
+  [1, v1ToV2],
+  [2, v2ToV3],
+]);
 
 const isRecord = (v: unknown): v is RawDoc => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -115,7 +160,7 @@ function normalise(raw: RawDoc): BoardDoc {
     schemaVersion: SCHEMA_VERSION,
     id: stringOr(raw['id'], ''),
     parentBoardId: typeof raw['parentBoardId'] === 'string' ? raw['parentBoardId'] : null,
-    title: stringOr(raw['title'], 'Namnlös tavla'),
+    title: stringOr(raw['title'], DEFAULT_BOARD_TITLE),
     icon: typeof raw['icon'] === 'string' ? raw['icon'] : null,
     createdAt: stringOr(raw['createdAt'], new Date(0).toISOString()),
     updatedAt: stringOr(raw['updatedAt'], stringOr(raw['createdAt'], new Date(0).toISOString())),

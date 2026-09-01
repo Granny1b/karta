@@ -184,7 +184,7 @@ export function makeLabel(init: Partial<LabelDef> & { name: string }): LabelDef 
   };
 }
 
-/** Idé → Planerad → Bygger → Testar → Klar (spec 7.4). */
+/** Idea → Planned → Building → Testing → Done (spec 7.4). */
 export function makeDefaultStatuses(): StatusDef[] {
   return DEFAULT_STATUS_NAMES.map((s, index) =>
     makeStatus({ name: s.name, color: s.color, order: index, isDone: s.isDone }),

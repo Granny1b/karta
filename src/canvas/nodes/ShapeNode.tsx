@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -11,6 +12,8 @@ import {
 import { NodeToolbar, Position, type NodeProps } from '@xyflow/react';
 import { MAX_SHAPE_LABEL, type ColorToken, type HexColor, type ShapeNode } from '@/domain/board';
 import { TEMPER_TOKENS, colorValue } from '@/lib/colors';
+import { isEditableTarget } from '@/lib/keys';
+import type { Lod } from '@/lib/lod';
 import { cx } from '@/canvas/cx';
 import { SHAPE_GEOMETRY, drawnSize } from '@/canvas/shapes';
 import NodeHandles from '@/canvas/nodes/NodeHandles';
@@ -178,10 +181,32 @@ function ShapeToolbar({ shape }: { shape: ShapeNode }): JSX.Element | null {
  * The node
  * ------------------------------------------------------------------ */
 
+/**
+ * Whether an empty shape should say so.
+ *
+ * An empty shape drew nothing inside itself, so nothing suggested it could hold
+ * text and the double-click that edits it was undiscoverable. The hint answers
+ * that, but only where it is both useful and true: on the one shape a keystroke
+ * would land on, and at a zoom where the words can actually be read. A locked
+ * shape cannot be typed into, so promising it would be a lie.
+ */
+export function shouldHintText(state: {
+  selected: boolean;
+  sole: boolean;
+  locked: boolean;
+  lod: Lod;
+}): boolean {
+  if (!state.selected || !state.sole || state.locked) return false;
+  return state.lod === 'full' || state.lod === 'compact';
+}
+
 /** The draw.io vocabulary on the canvas (spec 5.2): a silhouette and a centred label. */
 function ShapeNodeView({ data, selected, dragging, width, height }: NodeProps<ShapeFlowNode>): JSX.Element {
   const shape = data.node;
   const lod = useLod();
+  // The keystroke and the hint both belong to whichever shape is the only thing
+  // selected — see the type-to-edit effect below.
+  const sole = useSoleNodeSelected();
   const [draft, setDraft] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const editing = draft !== null;
@@ -198,14 +223,55 @@ function ShapeNodeView({ data, selected, dragging, width, height }: NodeProps<Sh
   const stroke = strokePaint(shape.stroke, shape.fill, shape.color);
   const label = shape.label.trim();
 
+  const openEditor = useCallback(
+    (seed?: string): void => {
+      if (shape.locked) return;
+      setDraft(seed ?? shape.label);
+    },
+    [shape.locked, shape.label],
+  );
+
   const beginEdit = useCallback(
     (event: ReactMouseEvent): void => {
       if (shape.locked) return;
       event.stopPropagation();
-      setDraft(shape.label);
+      openEditor();
     },
-    [shape.locked, shape.label],
+    [openEditor, shape.locked],
   );
+
+  /**
+   * draw.io's gesture: a selected shape is typed into directly, and the first
+   * character replaces the label rather than appending to it. Double-click
+   * still opens the field with the old text, which is the editing gesture; this
+   * is the writing one, and it is the reason an empty shape is discoverable at
+   * all without reading a shortcut list.
+   *
+   * Only ever the sole selection: typing over a marquee of forty shapes would
+   * be a data loss gesture, not a convenience.
+   */
+  useEffect(() => {
+    if (selected !== true || !sole || editing || shape.locked) return undefined;
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (isEditableTarget(event.target)) return;
+
+      if (event.key === 'Enter' || event.key === 'F2') {
+        event.preventDefault();
+        openEditor();
+        return;
+      }
+      // A single printable character starts a fresh label with it.
+      if (event.key.length === 1 && event.key !== ' ') {
+        event.preventDefault();
+        openEditor(event.key);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [editing, openEditor, selected, shape.locked, sole]);
 
   const commit = useCallback(
     (value: string): void => {
@@ -292,6 +358,8 @@ function ShapeNodeView({ data, selected, dragging, width, height }: NodeProps<Sh
   const fits = Math.max(1, Math.floor(inset.h / LINE_H));
   const lines = lod === 'title' ? 1 : lod === 'compact' ? Math.min(2, fits) : fits;
 
+  const showHint = shouldHintText({ selected: selected === true, sole, locked: shape.locked, lod });
+
   return (
     <>
       {/* Outside the silhouette: half of every resize handle hangs over the edge. */}
@@ -353,19 +421,27 @@ function ShapeNodeView({ data, selected, dragging, width, height }: NodeProps<Sh
               onDoubleClick={(event) => event.stopPropagation()}
             />
           ) : (
-            label.length > 0 && (
-              <div
-                className="w-full overflow-hidden break-words text-center text-ink"
-                style={{
-                  ...labelType,
-                  display: '-webkit-box',
-                  WebkitBoxOrient: 'vertical',
-                  WebkitLineClamp: lines,
-                }}
-              >
-                {label}
-              </div>
-            )
+            <div
+              className="w-full overflow-hidden break-words text-center"
+              style={{
+                ...labelType,
+                display: '-webkit-box',
+                WebkitBoxOrient: 'vertical',
+                WebkitLineClamp: lines,
+              }}
+            >
+              {label.length > 0 ? (
+                <span className="text-ink">{label}</span>
+              ) : (
+                // An empty shape used to draw nothing at all inside itself, so
+                // there was no way to tell it could hold text. The hint costs
+                // nothing at rest: it shows only once the shape is the sole
+                // selection, and never at a zoom where it could not be read.
+                showHint && (
+                  <span className="text-ink-muted opacity-70 select-none">Type to add text</span>
+                )
+              )}
+            </div>
           )}
         </div>
 

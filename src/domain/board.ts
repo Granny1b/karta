@@ -25,7 +25,7 @@ export type HexColor = string; // #RRGGBB
  * change is purely additive — no node that existed under 1 changed shape — so
  * the 1 → 2 migration in `api/src/domain/migrate.ts` is an identity step.
  */
-export const SCHEMA_VERSION = 2 as const;
+export const SCHEMA_VERSION = 3 as const;
 
 export interface Viewport {
   x: number;
@@ -359,13 +359,13 @@ export const isShapeNode = (n: BoardNode): n is ShapeNode => n.kind === 'shape';
  * Defaults
  * ------------------------------------------------------------------ */
 
-/** Default statuses on a new board: Idé → Planerad → Bygger → Testar → Klar. */
+/** Default statuses on a new board: Idea → Planned → Building → Testing → Done. */
 export const DEFAULT_STATUS_NAMES: ReadonlyArray<{ name: string; color: ColorToken; isDone: boolean }> = [
-  { name: 'Idé', color: 'slate', isDone: false },
-  { name: 'Planerad', color: 'straw', isDone: false },
-  { name: 'Bygger', color: 'bronze', isDone: false },
-  { name: 'Testar', color: 'blue', isDone: false },
-  { name: 'Klar', color: 'teal', isDone: true },
+  { name: 'Idea', color: 'slate', isDone: false },
+  { name: 'Planned', color: 'straw', isDone: false },
+  { name: 'Building', color: 'bronze', isDone: false },
+  { name: 'Testing', color: 'blue', isDone: false },
+  { name: 'Done', color: 'teal', isDone: true },
 ];
 
 export const DEFAULT_NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
