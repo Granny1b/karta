@@ -638,6 +638,15 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
       }
 
       if (!get().me) void get().loadMe();
+
+      // A board the index does not know about cannot be placed in the
+      // breadcrumb, and until now the only thing that fixed that was the 20 s
+      // poll coming round — so a board opened straight after being created,
+      // here or in another tab, had no trail above it for up to twenty seconds.
+      // One refresh on a miss closes the window for every route in, not just
+      // the one that happened to create it.
+      if (get().index?.boards.some((b) => b.id === id) === false) void get().loadIndex();
+
       startPolling(id);
       void maybeDailySnapshot(id);
     } catch (err) {

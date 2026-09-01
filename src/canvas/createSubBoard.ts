@@ -47,6 +47,21 @@ export async function createSubBoardAt(
     });
 
     store.addNode(link);
+
+    // Two things have to be true before the user can walk into this board.
+    //
+    // The link must be on the server, because opening the child replaces the
+    // parent document in memory and an unsaved link would go with it — the same
+    // reason the sidebar saves before it navigates.
+    await store.save();
+
+    // And the index must know the board exists. The breadcrumb is built by
+    // walking parentBoardId through the index (`Breadcrumb.chainFor`), and a
+    // board it cannot find breaks the walk on its first step — leaving no
+    // breadcrumb at all, not merely a shorter one. `api.createBoard` updates
+    // the index on the server; this is what makes the client's copy agree.
+    await store.loadIndex();
+
     ui.toast('Nested board added — double-click it to go in');
     return created.doc.id;
   } catch {
