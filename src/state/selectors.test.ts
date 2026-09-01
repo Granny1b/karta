@@ -67,3 +67,60 @@ describe('boardTree', () => {
     expect(boardTree(index)).toEqual([]);
   });
 });
+
+describe('boardTree and soft deletion', () => {
+  const summary = (id: string, title: string, parentBoardId: string | null, deletedAt: string | null = null) => ({
+    id,
+    parentBoardId,
+    title,
+    icon: null,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    deletedAt,
+    counts: { cards: 0, done: 0, children: 0 },
+    ownerId: 'u1',
+  });
+
+  const index = (boards: ReturnType<typeof summary>[]) => ({
+    schemaVersion: SCHEMA_VERSION,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    boards,
+  });
+
+  /*
+   * Reported as "the left panel isn't updating when I delete boards". The tree
+   * is the one place a soft-deleted board must not appear: the document still
+   * exists (blob soft delete is the 14-day undo behind it), so only `deletedAt`
+   * separates a board that is gone from one that is not.
+   */
+  it('leaves a soft-deleted child out of its parent', () => {
+    const tree = boardTree(
+      index([summary('root', 'MMORPG', null), summary('gone', 'New board', 'root', '2026-01-02T00:00:00.000Z')]),
+    );
+    expect(tree).toHaveLength(1);
+    expect(tree[0]?.children).toEqual([]);
+  });
+
+  it('does not resurrect it at the root either', () => {
+    // Filtering the parent out of the map must not make its children orphans
+    // that surface at the top — the deleted board has to be gone from the walk.
+    const tree = boardTree(
+      index([
+        summary('root', 'MMORPG', null, '2026-01-02T00:00:00.000Z'),
+        summary('child', 'Systems', 'root'),
+      ]),
+    );
+    expect(tree.map((n) => n.summary.title)).toEqual(['Systems']);
+  });
+
+  it('keeps every board that is not deleted', () => {
+    const tree = boardTree(
+      index([
+        summary('root', 'MMORPG', null),
+        summary('a', 'Systems', 'root'),
+        summary('b', 'World', 'root'),
+        summary('c', 'Gone', 'root', '2026-01-02T00:00:00.000Z'),
+      ]),
+    );
+    expect(tree[0]?.children.map((c) => c.summary.title)).toEqual(['Systems', 'World']);
+  });
+});
