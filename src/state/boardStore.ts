@@ -83,7 +83,7 @@ export interface BoardState {
   updateNode(id: Id, patch: Record<string, unknown>, label?: string): void;
   removeNodes(ids: Id[]): void;
   addEdgeToBoard(edge: Edge): void;
-  updateEdge(id: Id, patch: Partial<Edge>): void;
+  updateEdge(id: Id, patch: Partial<Edge>, label?: string): void;
   removeEdges(ids: Id[]): void;
   setViewport(v: Viewport): void;
   addMedia(ref: MediaRef): void;
@@ -841,8 +841,10 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
     });
   },
 
-  updateEdge(id, patch) {
-    get().mutate('Edit arrow', (d) => {
+  updateEdge(id, patch, label) {
+    // Bending, moving and straightening are distinct gestures and read better
+    // in the undo stack under their own names, the way node edits already do.
+    get().mutate(label ?? 'Edit arrow', (d) => {
       const edge = d.edges.find((e) => e.id === id);
       if (!edge) return;
       Object.assign(edge, patch, { id: edge.id });

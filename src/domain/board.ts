@@ -25,7 +25,7 @@ export type HexColor = string; // #RRGGBB
  * change is purely additive — no node that existed under 1 changed shape — so
  * the 1 → 2 migration in `api/src/domain/migrate.ts` is an identity step.
  */
-export const SCHEMA_VERSION = 3 as const;
+export const SCHEMA_VERSION = 5 as const;
 
 export interface Viewport {
   x: number;
@@ -250,6 +250,15 @@ export type Handle = 'top' | 'right' | 'bottom' | 'left';
 export type EdgeSemantic = 'relates' | 'depends' | 'blocks' | 'derives';
 export type EdgeRouting = 'bezier' | 'smoothstep' | 'straight';
 
+/** A bend the user placed on an arrow, in flow coordinates. */
+export interface Waypoint {
+  x: number;
+  y: number;
+}
+
+/** As many bends as an arrow may carry before the UI refuses to add another. */
+export const MAX_WAYPOINTS = 24;
+
 export interface Edge {
   id: Id;
   source: Id;
@@ -260,6 +269,11 @@ export interface Edge {
   label: string | null;
   routing: EdgeRouting;
   color: ColorToken | HexColor | null;
+  /**
+   * Bends, in order from source to target. Empty means the router decides the
+   * whole path; a point here is one the user placed and can drag again.
+   */
+  waypoints: Waypoint[];
   updatedAt: Iso;
 }
 

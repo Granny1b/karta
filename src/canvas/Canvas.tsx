@@ -21,6 +21,7 @@ import {
   applyNodeChanges,
   useKeyPress,
   useReactFlow,
+  type Connection,
   useStore,
   type EdgeChange,
   type IsValidConnection,
@@ -60,8 +61,9 @@ import SelectionMenu, {
 import EmptyCanvasHint from '@/board/EmptyCanvasHint';
 import { collectForClipboard, holdForClipboard, payloadForMarker } from '@/canvas/clipboard';
 import { extractToBoard } from '@/canvas/extract';
-import { syncFlowEdges, syncFlowNodes } from '@/canvas/mapping';
+import { isHandleSide, syncFlowEdges, syncFlowNodes } from '@/canvas/mapping';
 import {
+  hasEdgeBetween,
   CONNECT_DRAG_THRESHOLD,
   REFUSAL_TEXT,
   choiceSize,
@@ -93,6 +95,13 @@ import {
 import { edgeTypes } from '@/canvas/edges';
 import { nodeTypes } from '@/canvas/nodes';
 import {
+  draggedNode,
+  neighboursOf,
+  snapToNeighbours,
+  type Rect as AlignRect,
+} from '@/canvas/alignment';
+import AlignmentGuides, { createGuideTracker } from '@/canvas/AlignmentGuides';
+import {
   describeSelection,
   useSelectionCounts,
   useSelectionTracker,
@@ -113,6 +122,17 @@ import './canvas.css';
  * the pan/zoom filter — sixty times a second while a marquee is being dragged.
  */
 const SNAP_GRID: [number, number] = [8, 8];
+
+/**
+ * Catch distances for alignment, in screen pixels — divided by the zoom before
+ * use, so the snap feels the same however far in or out the camera is.
+ *
+ * A node joined to the dragged one by an arrow gets the wider figure: putting a
+ * card back where its arrow runs straight is the gesture this exists for, and
+ * the ordinary distance is too fine to find by hand.
+ */
+const ALIGN_REACH = 6;
+const ALIGN_REACH_CONNECTED = 22;
 /*
  * Middle button only. The right button used to pan as well, which cannot
  * coexist with a context menu: the browser fires `contextmenu` on the press on
@@ -205,7 +225,8 @@ function CanvasSurface(): JSX.Element | null {
   const selectionMenuRef = useRef<XYPosition | null>(null);
   selectionMenuRef.current = selectionMenu;
 
-  const { screenToFlowPosition, flowToScreenPosition, fitView, zoomTo, getViewport } = useReactFlow<
+  const { screenToFlowPosition, flowToScreenPosition, fitView, zoomTo, getViewport, getZoom } =
+    useReactFlow<
     KartaFlowNode,
     KartaFlowEdge
   >();
@@ -314,13 +335,68 @@ function CanvasSurface(): JSX.Element | null {
    * array is a full re-adoption of every node inside React Flow — so an empty
    * batch, which a gesture can produce, is dropped before it costs anything.
    */
+  const guides = useRef(createGuideTracker()).current;
+
+  /**
+   * Snap a single-node drag to the neighbours' edges and centres before React
+   * Flow applies it, which is the same seam React Flow's own helper-lines
+   * example uses. Alt holds it off, exactly as it holds off the grid.
+   *
+   * Nothing here may allocate per frame beyond the one adjusted change: this
+   * runs on every pointer move of every drag.
+   */
+  const alignChanges = useCallback(
+    (changes: NodeChange<KartaFlowNode>[], current: KartaFlowNode[]): NodeChange<KartaFlowNode>[] => {
+      const drag = draggedNode(changes as { type: string; id?: string; dragging?: boolean; position?: { x: number; y: number } }[]);
+      if (drag === null) {
+        guides.clear();
+        return changes;
+      }
+
+      const moving = current.find((node) => node.id === drag.id);
+      if (moving === undefined) return changes;
+
+      const size = (node: KartaFlowNode): { w: number; h: number } => ({
+        w: node.measured?.width ?? node.width ?? node.data.node.size.w,
+        h: node.measured?.height ?? node.height ?? node.data.node.size.h,
+      });
+
+      const box = size(moving);
+      const rect: AlignRect = { id: drag.id, x: drag.x, y: drag.y, w: box.w, h: box.h };
+
+      const others: AlignRect[] = [];
+      for (const node of current) {
+        if (node.id === drag.id || node.hidden === true) continue;
+        const s = size(node);
+        others.push({ id: node.id, x: node.position.x, y: node.position.y, w: s.w, h: s.h });
+      }
+
+      const zoom = getZoom() || 1;
+      const snapped = snapToNeighbours(rect, others, {
+        threshold: ALIGN_REACH / zoom,
+        connected: neighboursOf(drag.id, useBoardStore.getState().doc?.edges ?? []),
+        connectedThreshold: ALIGN_REACH_CONNECTED / zoom,
+      });
+
+      guides.set(snapped.guides);
+      if (snapped.x === drag.x && snapped.y === drag.y) return changes;
+
+      return changes.map((change) =>
+        change.type === 'position' && change.id === drag.id
+          ? { ...change, position: { x: snapped.x, y: snapped.y } }
+          : change,
+      );
+    },
+    [getZoom, guides],
+  );
+
   const onNodesChange = useCallback(
     (changes: NodeChange<KartaFlowNode>[]): void => {
       if (changes.length === 0) return;
       selection.readNodeChanges(changes);
-      setFlowNodes((prev) => applyNodeChanges(changes, prev));
+      setFlowNodes((prev) => applyNodeChanges(alignChanges(changes, prev), prev));
     },
-    [selection, setFlowNodes],
+    [alignChanges, selection, setFlowNodes],
   );
 
   const onEdgesChange = useCallback(
@@ -398,6 +474,7 @@ function CanvasSurface(): JSX.Element | null {
 
   const onNodeDragStop: OnNodeDrag<KartaFlowNode> = useCallback(
     (_event, node, dragged) => {
+      guides.clear();
       const drag = groupDrag.current;
       groupDrag.current = null;
 
@@ -414,7 +491,41 @@ function CanvasSurface(): JSX.Element | null {
       }
       commitPositions(moved);
     },
-    [commitPositions],
+    [commitPositions, guides],
+  );
+
+  /**
+   * Dragging an arrow's end onto another node, which React Flow calls
+   * reconnection. The bends stay where they are: they were placed relative to
+   * the board, not to the endpoint, and silently discarding them because the
+   * far end moved would be the opposite of adjustable.
+   */
+  const onReconnect = useCallback(
+    (oldEdge: KartaFlowEdge, connection: Connection): void => {
+      const source = connection.source;
+      const target = connection.target;
+      if (source === null || target === null || source === target) return;
+
+      const store = useBoardStore.getState();
+      // The edge being moved is not its own duplicate.
+      const others = (store.doc?.edges ?? []).filter((e) => e.id !== oldEdge.id);
+      if (hasEdgeBetween(others, source, target)) {
+        useUiStore.getState().toast('Those two are already joined that way', 'warn');
+        return;
+      }
+
+      store.updateEdge(
+        oldEdge.id,
+        {
+          source,
+          target,
+          sourceHandle: isHandleSide(connection.sourceHandle) ? connection.sourceHandle : 'right',
+          targetHandle: isHandleSide(connection.targetHandle) ? connection.targetHandle : 'left',
+        },
+        'Reconnect arrow',
+      );
+    },
+    [],
   );
 
   const onMoveEnd = useCallback((_event: unknown, viewport: Viewport): void => {
@@ -978,10 +1089,11 @@ function CanvasSurface(): JSX.Element | null {
     () => (
       <>
         <FadingBackground />
+        <AlignmentGuides tracker={guides} />
         <Controls position="bottom-right" showInteractive={false} />
       </>
     ),
-    [],
+    [guides],
   );
 
   const furniture = useMemo(
@@ -1030,6 +1142,7 @@ function CanvasSurface(): JSX.Element | null {
               edges={flowEdges}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
+              onReconnect={onReconnect}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeDragStart={onNodeDragStart}

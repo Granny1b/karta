@@ -151,7 +151,8 @@ export function makeEdge(init: Init<Edge> & { source: Id; target: Id }): Edge {
     targetHandle: init.targetHandle ?? 'left',
     semantic: init.semantic ?? 'relates',
     label: init.label ?? null,
-    routing: init.routing ?? 'bezier',
+    routing: init.routing ?? 'smoothstep',
+    waypoints: init.waypoints ?? [],
     color: init.color ?? null,
     updatedAt: init.updatedAt ?? nowIso(),
   };

@@ -123,7 +123,7 @@ describe('2 -> 3: English default statuses', () => {
       'Testing',
       'Done',
     ]);
-    expect(doc.schemaVersion).toBe(3);
+    expect(doc.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
   it('keeps ids, order, colour and isDone, so cards do not change column', () => {
@@ -146,7 +146,126 @@ describe('2 -> 3: English default statuses', () => {
     const raw = v2Board([{ name: 'Klar', isDone: true }]) as Record<string, unknown>;
     raw['schemaVersion'] = 1;
     const doc = migrate(raw);
-    expect(doc.schemaVersion).toBe(3);
+    expect(doc.schemaVersion).toBe(SCHEMA_VERSION);
     expect(doc.statuses[0]?.name).toBe('Done');
+  });
+});
+
+describe('3 -> 4: stepped arrows', () => {
+  const withEdges = (routings: string[]): unknown => ({
+    schemaVersion: 3,
+    id: '01J0000000000000000000000A',
+    parentBoardId: null,
+    title: 'Systems',
+    icon: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    deletedAt: null,
+    acl: { ownerId: 'u1', editorIds: [], viewerIds: [] },
+    viewport: { x: 0, y: 0, zoom: 1 },
+    statuses: [],
+    labels: [],
+    nodes: [],
+    edges: routings.map((routing, i) => ({
+      id: `E${i}`,
+      source: 'a',
+      sourceHandle: 'right',
+      target: 'b',
+      targetHandle: 'left',
+      semantic: 'depends',
+      label: null,
+      routing,
+      color: null,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })),
+    media: [],
+  });
+
+  it('turns the old default into stepped', () => {
+    const doc = migrate(withEdges(['bezier', 'bezier']));
+    expect(doc.edges.map((e) => e.routing)).toEqual(['smoothstep', 'smoothstep']);
+  });
+
+  it('leaves a deliberate straight edge alone', () => {
+    const doc = migrate(withEdges(['straight', 'bezier', 'smoothstep']));
+    expect(doc.edges.map((e) => e.routing)).toEqual(['straight', 'smoothstep', 'smoothstep']);
+  });
+
+  it('keeps everything else about the edge', () => {
+    const doc = migrate(withEdges(['bezier']));
+    const edge = doc.edges[0];
+    expect(edge?.id).toBe('E0');
+    expect(edge?.semantic).toBe('depends');
+    expect(edge?.sourceHandle).toBe('right');
+    expect(edge?.targetHandle).toBe('left');
+  });
+
+  it('carries a v1 board through every step at once', () => {
+    const raw = withEdges(['bezier']) as Record<string, unknown>;
+    raw['schemaVersion'] = 1;
+    raw['statuses'] = [{ id: 'S', name: 'Klar', color: 'teal', order: 0, isDone: true }];
+
+    const doc = migrate(raw);
+    expect(doc.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(doc.statuses[0]?.name).toBe('Done');
+    expect(doc.edges[0]?.routing).toBe('smoothstep');
+  });
+});
+
+describe('4 -> 5: arrows carry their own bends', () => {
+  const v4 = (edge: Record<string, unknown>): unknown => ({
+    schemaVersion: 4,
+    id: '01J0000000000000000000000A',
+    parentBoardId: null,
+    title: 'Systems',
+    icon: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    deletedAt: null,
+    acl: { ownerId: 'u1', editorIds: [], viewerIds: [] },
+    viewport: { x: 0, y: 0, zoom: 1 },
+    statuses: [],
+    labels: [],
+    nodes: [],
+    edges: [
+      {
+        id: 'E0',
+        source: 'a',
+        sourceHandle: 'right',
+        target: 'b',
+        targetHandle: 'left',
+        semantic: 'depends',
+        label: null,
+        routing: 'smoothstep',
+        color: null,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        ...edge,
+      },
+    ],
+    media: [],
+  });
+
+  it('gives an edge written before bends existed an empty list', () => {
+    const doc = migrate(v4({}));
+    expect(doc.edges[0]?.waypoints).toEqual([]);
+  });
+
+  it('leaves bends that are already there alone', () => {
+    const bends = [{ x: 10, y: 20 }];
+    const doc = migrate(v4({ waypoints: bends }));
+    expect(doc.edges[0]?.waypoints).toEqual(bends);
+  });
+
+  it('carries a v1 board through every step in one read', () => {
+    const raw = v4({}) as Record<string, unknown>;
+    raw['schemaVersion'] = 1;
+    raw['statuses'] = [{ id: 'S', name: 'Klar', color: 'teal', order: 0, isDone: true }];
+    (raw['edges'] as Record<string, unknown>[])[0]!['routing'] = 'bezier';
+
+    const doc = migrate(raw);
+    expect(doc.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(doc.statuses[0]?.name).toBe('Done');
+    expect(doc.edges[0]?.routing).toBe('smoothstep');
+    expect(doc.edges[0]?.waypoints).toEqual([]);
   });
 });

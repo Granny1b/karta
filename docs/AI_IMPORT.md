@@ -309,3 +309,10 @@ them (and says so), and an arrow with one end on a skipped node is skipped with 
 colours, checklists, due dates, collapsed cards, notes, texts, shapes, arrows and their semantics —
 comes back exactly as it went out, and the round trip is covered by a test in
 `src/io/importer.test.ts`.
+
+## What the portable format deliberately leaves out
+
+`waypoints` — the bends a person has dragged onto an arrow. They are coordinates on a particular
+board, meaningful only next to the nodes they were placed around, and nothing an AI can usefully
+choose. An imported arrow arrives unbent and is bent by hand afterwards if it needs to be. The full
+export (`exportFull`) does carry them, so a whole-board backup round-trips exactly.
