@@ -14,6 +14,7 @@ import { NodeToolbar, Position } from '@xyflow/react';
 import { MAX_TITLE, capText, type ColorToken } from '@/domain/board';
 import { renameBoard } from '@/board/renameBoard';
 import { takeRenameOnMount } from '@/canvas/createSubBoard';
+import { clickedOutside } from '@/canvas/dismiss';
 import { useSoleNodeSelected } from '@/canvas/soleSelection';
 import { useBoardStore } from '@/state/boardStore';
 import { isEditableTarget } from '@/lib/keys';
@@ -39,27 +40,49 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
   const editing = draft !== null;
   const input = useRef<HTMLInputElement>(null);
   const gear = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const title = link.cachedTitle.trim().length > 0 ? link.cachedTitle : 'Board';
 
   const [menuOpen, setMenuOpen] = useState(false);
 
   const setColour = useCallback(
     (next: ColorToken | null): void => {
-      setMenuOpen(false);
+      // The menu stays open: picking a colour is the kind of choice people make
+      // two or three times before they settle, and closing after each one turns
+      // a comparison into four round trips through the gear.
       useBoardStore.getState().updateNode(link.id, { color: next }, 'Recolour board link');
     },
     [link.id],
   );
 
-  // Clicking away closes it, the way every other menu on the canvas behaves.
+  /*
+   * Dismissal.
+   *
+   * The menu is rendered by `NodeToolbar` into a portal, so it is NOT inside
+   * the gear that opened it. Exempting only the gear made every click on the
+   * menu an outside click: it closed on `pointerdown` and the `click` that
+   * would have chosen something never reached a mounted element. The menu
+   * opened, and then did nothing.
+   */
   useEffect(() => {
     if (!menuOpen) return undefined;
-    const close = (event: Event): void => {
-      if (event.target instanceof Node && gear.current?.contains(event.target)) return;
-      setMenuOpen(false);
+
+    const onPointerDown = (event: PointerEvent): void => {
+      if (clickedOutside(event.target, [gear.current, menu.current])) setMenuOpen(false);
     };
-    window.addEventListener('pointerdown', close, true);
-    return () => window.removeEventListener('pointerdown', close, true);
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setMenuOpen(false);
+      gear.current?.focus();
+    };
+
+    window.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
   }, [menuOpen]);
 
   const beginRename = useCallback((): void => {
@@ -166,7 +189,7 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
           className="karta-node-toolbar"
           isVisible
         >
-          <div className="flex flex-col gap-1 p-1" role="menu" aria-label="Board settings">
+          <div ref={menu} className="flex flex-col gap-1 p-1" role="menu" aria-label="Board settings">
             <button
               type="button"
               role="menuitem"
