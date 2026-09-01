@@ -9,6 +9,7 @@ export interface CanvasShortcutHandlers {
   newText(): void;
   /** Twelve shapes cannot be one key, so this opens the picker (spec 5.2). */
   newShape(): void;
+  newBoard(): void;
   openEditor(): void;
   escape(): void;
   duplicate(): void;
@@ -145,6 +146,10 @@ export function useCanvasShortcuts(enabled: boolean, handlers: CanvasShortcutHan
         case 'new-shape':
           event.preventDefault();
           h.newShape();
+          break;
+        case 'new-board':
+          event.preventDefault();
+          h.newBoard();
           break;
         case 'open-editor':
           // Spec 9 scopes this to "Enter (node selected)", which is the canvas

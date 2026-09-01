@@ -8,11 +8,12 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { create } from 'zustand';
-import { ChevronsLeft, PanelLeftOpen, Shapes } from 'lucide-react';
+import { ChevronsLeft, FolderPlus, PanelLeftOpen, Shapes } from 'lucide-react';
 import { readLocal, writeLocal } from '@/lib/storage';
 import type { ConnectChoice } from '@/canvas/connect';
 import { SHAPE_GEOMETRY, SHAPE_LABEL, SHAPE_ORDER } from '@/canvas/shapes';
-import { usePlaceAtCentre, writePaletteDrag } from '@/canvas/dragCreate';
+import { usePlaceAtCentre, useViewCentre, writePaletteDrag } from '@/canvas/dragCreate';
+import { createSubBoardAt } from '@/canvas/createSubBoard';
 import IconButton from '@/components/IconButton';
 
 /**
@@ -247,6 +248,21 @@ export default function Palette(): JSX.Element {
   const headingId = useId();
   const cardsId = useId();
   const shapesId = useId();
+  const boardsId = useId();
+
+  // A nested board is created on the server before its link can be drawn, so
+  // the button holds still while that is in flight rather than making two.
+  const viewCentre = useViewCentre();
+  const [makingBoard, setMakingBoard] = useState(false);
+  const addSubBoard = useCallback(async (): Promise<void> => {
+    if (makingBoard) return;
+    setMakingBoard(true);
+    try {
+      await createSubBoardAt(viewCentre());
+    } finally {
+      setMakingBoard(false);
+    }
+  }, [makingBoard, viewCentre]);
 
   const items = useRef<(HTMLButtonElement | null)[]>([]);
   const [active, setActive] = useState(0);
@@ -392,6 +408,32 @@ export default function Palette(): JSX.Element {
               />
             ))}
           </div>
+        </div>
+
+        <hr className="my-2 border-line" />
+
+        {/*
+          A nested board is its own group, not a fourth card kind: it is the one
+          item here that creates something on the server before it can be drawn,
+          so it cannot travel as a palette drag payload the way the others do.
+        */}
+        <div role="group" aria-labelledby={boardsId}>
+          <Caption id={boardsId}>Boards</Caption>
+          <button
+            type="button"
+            className={`${paletteItemClass('row')} disabled:pointer-events-none disabled:opacity-50`}
+            title="A new empty board, with a link to it here. Double-click the link to go in."
+            onClick={() => void addSubBoard()}
+            disabled={makingBoard}
+          >
+            <span className="flex h-3.5 w-5 shrink-0 items-center justify-center" aria-hidden>
+              <FolderPlus size={15} />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+              {makingBoard ? 'Creating…' : 'Nested board'}
+            </span>
+            <span className="shrink-0 text-[11px] leading-none">B</span>
+          </button>
         </div>
 
         <hr className="my-2 border-line" />

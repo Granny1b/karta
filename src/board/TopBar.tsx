@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import {
+import { Search,
   Columns3,
   Download,
   History,
@@ -17,6 +17,12 @@ import { useUiStore } from '@/state/uiStore';
 import FilterBar from '@/kanban/FilterBar';
 import Breadcrumb from '@/board/Breadcrumb';
 import IconButton from '@/components/IconButton';
+
+/** Apple keyboards send Meta for this binding, so the hint has to match. */
+const SEARCH_KEY =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+    ? '\u2318K'
+    : 'Ctrl K';
 import Tooltip from '@/components/Tooltip';
 
 /**
@@ -49,6 +55,7 @@ export default function TopBar(): JSX.Element {
 
       <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
         <SaveState />
+        <SearchBar onOpen={() => setDialog('search')} />
         <IconButton label="Import JSON" icon={<Upload size={17} />} onClick={() => setDialog('import')} />
         <IconButton label="Export JSON" icon={<Download size={17} />} onClick={() => setDialog('export')} />
         <IconButton
@@ -59,6 +66,34 @@ export default function TopBar(): JSX.Element {
         <AccountMenu />
       </div>
     </header>
+  );
+}
+
+/**
+ * The search box in the ribbon.
+ *
+ * `Ctrl+K` has existed since the first build and had no visible affordance, so
+ * it went unfound — a control that exists only as a keystroke is a control most
+ * people do not have. This shows the shortcut rather than hiding it in a
+ * tooltip.
+ *
+ * It looks like a field but is a button: typing happens in the dialog it opens,
+ * so there is one search input rather than two that have to agree.
+ */
+function SearchBar({ onOpen }: { onOpen(): void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title="Search this board and every board title"
+      className="group flex h-7 w-[168px] shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] border border-line bg-canvas px-2 text-left text-ink-muted transition-colors duration-[var(--dur-fast)] ease-linear hover:border-line-strong hover:text-ink"
+    >
+      <Search size={14} className="shrink-0" aria-hidden />
+      <span className="min-w-0 flex-1 truncate text-[13px]">Search</span>
+      <kbd className="shrink-0 rounded border border-line px-1 font-mono text-[10px] leading-[15px] text-ink-muted">
+        {SEARCH_KEY}
+      </kbd>
+    </button>
   );
 }
 

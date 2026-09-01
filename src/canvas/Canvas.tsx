@@ -101,6 +101,7 @@ import {
   type Rect as AlignRect,
 } from '@/canvas/alignment';
 import AlignmentGuides, { createGuideTracker } from '@/canvas/AlignmentGuides';
+import { createSubBoardAt } from '@/canvas/createSubBoard';
 import {
   describeSelection,
   useSelectionCounts,
@@ -1018,6 +1019,9 @@ function CanvasSurface(): JSX.Element | null {
           { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
           centreOfView(),
         );
+      },
+      newBoard: () => {
+        void createSubBoardAt(centreOfView());
       },
       openEditor: () => {
         const ids = selection.nodeIds();

@@ -11,6 +11,7 @@ export type ShortcutName =
   | 'new-card'
   | 'new-note'
   | 'new-text'
+  | 'new-board'
   | 'new-shape'
   | 'open-editor'
   | 'escape'
@@ -80,6 +81,9 @@ export function matchShortcut(e: KeyboardEvent): ShortcutName | null {
   // is worse than asking.
   if (key === 't' || key === 'T') return e.shiftKey ? null : 'new-text';
   if (key === 's' || key === 'S') return e.shiftKey ? null : 'new-shape';
+  // `B` makes an empty nested board here; `Ctrl+Shift+B` moves the selection
+  // into one. Both are doorways, which is why they share a letter.
+  if (key === 'b' || key === 'B') return e.shiftKey ? null : 'new-board';
 
   if (!e.shiftKey && key.length === 1 && key >= '1' && key <= '7') {
     return `color-${Number(key) as 1 | 2 | 3 | 4 | 5 | 6 | 7}`;
