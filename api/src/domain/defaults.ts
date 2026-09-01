@@ -10,11 +10,11 @@ import { ulid } from 'ulid';
 import type { BoardDoc, Id, StatusDef, Viewport } from '../../../src/domain/board.js';
 import { DEFAULT_STATUS_NAMES, SCHEMA_VERSION } from '../../../src/domain/board.js';
 
-export const DEFAULT_BOARD_TITLE = 'Namnlös tavla';
+export const DEFAULT_BOARD_TITLE = 'Untitled board';
 
 export const DEFAULT_VIEWPORT: Readonly<Viewport> = { x: 0, y: 0, zoom: 1 };
 
-/** Idé → Planerad → Bygger → Testar → Klar, with fresh ids. */
+/** Idea → Planned → Building → Testing → Done, with fresh ids. */
 function defaultStatuses(): StatusDef[] {
   return DEFAULT_STATUS_NAMES.map((s, i) => ({
     id: ulid(),

@@ -35,14 +35,14 @@ Format:
 {
   "kartaVersion": 1,
   "board":    { "title": "optional board title" },
-  "statuses": [ { "name": "Bygger", "color": "bronze", "isDone": false } ],
+  "statuses": [ { "name": "Building", "color": "bronze", "isDone": false } ],
   "labels":   [ { "name": "bug", "color": "copper" } ],
   "cards": [
     {
       "key": "a",                       // optional handle used by "edges" below
       "title": "Short imperative title",
       "body": "Markdown. Why this exists, what done looks like.",
-      "status": "Bygger",               // a status NAME, matched case-insensitively
+      "status": "Building",               // a status NAME, matched case-insensitively
       "labels": ["bug"],                // label NAMES, created if new
       "checklist": ["First step", { "text": "Done already", "done": true }],
       "color": "blue",                  // straw bronze copper purple blue teal slate, #RRGGBB or #RGB
@@ -224,20 +224,20 @@ still finds its card.
       "key": "model",
       "title": "Item model and stacking rules",
       "body": "Stack size per item type, plus the rules for partial stacks on pickup.",
-      "status": "Planerad",
+      "status": "Planned",
       "checklist": ["Decide stack sizes", "Write the merge rule", "Unit tests"]
     },
     {
       "key": "ui",
       "title": "Grid UI with drag and drop",
-      "status": "Idé",
+      "status": "Idea",
       "labels": ["spike"],
       "color": "blue"
     },
     {
       "key": "save",
       "title": "Persist inventory to the save file",
-      "status": "Idé",
+      "status": "Idea",
       "due": "2026-05-15"
     }
   ],
@@ -257,7 +257,7 @@ The shortest thing that works. A bare array, no keys, no positions:
 
 ```json
 [
-  { "title": "Loot window closes on ESC while typing", "labels": ["bug"], "status": "Bygger" },
+  { "title": "Loot window closes on ESC while typing", "labels": ["bug"], "status": "Building" },
   { "title": "NPC pathing stalls on the bridge", "labels": ["bug"], "color": "copper" },
   { "title": "Audio ducking never restores", "labels": ["bug"], "checklist": ["Repro", "Fix", "Verify"] }
 ]

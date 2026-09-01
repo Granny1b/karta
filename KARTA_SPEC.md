@@ -261,7 +261,7 @@ type Id = string;          // ULID — sortable, 26 chars
 type Iso = string;         // ISO 8601 UTC
 
 interface BoardDoc {
-  schemaVersion: 2;
+  schemaVersion: 3;
   id: Id;
   parentBoardId: Id | null;
   title: string;
@@ -287,7 +287,7 @@ interface Acl {
 
 interface StatusDef {
   id: Id;
-  name: string;                    // "Idé", "Bygger", "Testar", "Klar"
+  name: string;                    // "Idea", "Building", "Testing", "Done"
   color: ColorToken;
   order: number;
   isDone: boolean;                 // drives the progress rollup
@@ -456,7 +456,7 @@ exists so the sidebar tree and the `boardLink` rollups cost one blob read instea
 
 ```ts
 interface BoardIndex {
-  schemaVersion: 2;
+  schemaVersion: 3;
   updatedAt: Iso;
   boards: BoardSummary[];
 }
@@ -764,7 +764,7 @@ remembered locally.
   applies on the canvas as a dimming overlay rather than by hiding nodes, so the layout never
   jumps.
 
-Default statuses on a new board: **Idé → Planerad → Bygger → Testar → Klar**, with `Klar`
+Default statuses on a new board: **Idea → Planned → Building → Testing → Done**, with `Done`
 flagged `isDone`. Editable per board.
 
 ### 7.5 Never lose work
@@ -945,7 +945,7 @@ stored blob is under 300 KB.
 **Phase 5 — Kanban (1 day)**
 Status definitions per board, column view, drag between columns, rank within column, filter bar
 shared with the canvas dimming overlay.
-*Done when:* `Tab` switches views and dragging a card to *Klar* is reflected on the canvas.
+*Done when:* `Tab` switches views and dragging a card to *Done* is reflected on the canvas.
 
 **Phase 6 — Durability and collaborators (1–2 days)**
 IndexedDB WAL and restore prompt. Snapshots and restore UI. Node-level three-way merge and
@@ -1012,9 +1012,12 @@ turns the root board into a build order at a glance.
 
 ## Appendix B — Open questions
 
-1. **Board title language.** UI in English, or Swedish like TaskHub? English is assumed above
-   (default statuses excepted). Trivial to switch, but it decides whether react-i18next goes in
-   at Phase 0 or never.
+1. **Board title language.** ~~UI in English, or Swedish like TaskHub?~~ **Resolved: English
+   throughout.** The default statuses were the one Swedish holdout and they are now Idea → Planned
+   → Building → Testing → Done. Boards created before that carry the old names in their documents,
+   so schema version 3 renames an untouched default set on read; a status the owner has renamed is
+   left alone, in any language. No i18n library goes in — there is one language and it is the one
+   the UI is already written in.
 2. **Board-level ACL vs one shared space.** The spec carries `acl` from the start but only
    enforces it in Phase 6. If collaborators will see everything anyway, that field can be
    deleted and roughly a day of Phase 6 with it.

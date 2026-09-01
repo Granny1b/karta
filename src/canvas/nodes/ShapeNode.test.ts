@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_SHAPE_LABEL } from '@/domain/board';
-import { capShapeLabel } from '@/canvas/nodes/ShapeNode';
+import { shouldHintText, capShapeLabel } from '@/canvas/nodes/ShapeNode';
 import { makeBoard, makeShape } from '@/state/factories';
 import { validateBoardDoc } from '../../../api/src/domain/validate.js';
 
@@ -42,5 +42,29 @@ describe('capShapeLabel', () => {
       `doc.nodes[0].label: longer than ${MAX_SHAPE_LABEL} characters`,
     );
     expect(validateBoardDoc(boardWithLabel(capShapeLabel(pasted))).errors).toEqual([]);
+  });
+});
+
+describe('the empty-shape text hint', () => {
+  const base = { selected: true, sole: true, locked: false, lod: 'full' as const };
+
+  it('shows on the one shape a keystroke would land on', () => {
+    expect(shouldHintText(base)).toBe(true);
+    expect(shouldHintText({ ...base, lod: 'compact' })).toBe(true);
+  });
+
+  it('stays quiet for a shape that is not the whole selection', () => {
+    // A marquee over forty shapes must not put a hint in every one of them.
+    expect(shouldHintText({ ...base, sole: false })).toBe(false);
+    expect(shouldHintText({ ...base, selected: false })).toBe(false);
+  });
+
+  it('does not promise typing into a locked shape', () => {
+    expect(shouldHintText({ ...base, locked: true })).toBe(false);
+  });
+
+  it('stays quiet where the words could not be read', () => {
+    expect(shouldHintText({ ...base, lod: 'title' })).toBe(false);
+    expect(shouldHintText({ ...base, lod: 'block' })).toBe(false);
   });
 });

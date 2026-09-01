@@ -65,7 +65,7 @@ describe('applyImport', () => {
   const input = validated({
     statuses: [{ name: 'Blocked', color: 'copper' }],
     cards: [
-      { key: 'a', title: 'Sign-in', status: 'Idé', labels: ['infra'], checklist: ['Register app'] },
+      { key: 'a', title: 'Sign-in', status: 'Idea', labels: ['infra'], checklist: ['Register app'] },
       { key: 'b', title: 'Role check', status: 'Blocked' },
     ],
     notes: [{ text: 'Remember the redirect URI' }],
@@ -90,7 +90,7 @@ describe('applyImport', () => {
     const cards = doc.nodes.filter(isCardNode);
     const signIn = cards.find((c) => c.title === 'Sign-in');
     const roleCheck = cards.find((c) => c.title === 'Role check');
-    expect(signIn?.statusId).toBe(doc.statuses.find((s) => s.name === 'Idé')?.id);
+    expect(signIn?.statusId).toBe(doc.statuses.find((s) => s.name === 'Idea')?.id);
     expect(signIn?.labelIds).toEqual([doc.labels[0].id]);
     expect(signIn?.checklist).toHaveLength(1);
     expect(doc.edges.every((e) => e.source === roleCheck?.id)).toBe(true);
@@ -121,8 +121,8 @@ describe('applyImport', () => {
   it('ranks cards within their own column, appending on a second import', () => {
     const column = validated({
       cards: [
-        { title: 'One', status: 'Idé' },
-        { title: 'Two', status: 'Idé' },
+        { title: 'One', status: 'Idea' },
+        { title: 'Two', status: 'Idea' },
       ],
     }).value;
 
@@ -172,16 +172,16 @@ describe('export', () => {
   it('reads a full board document back in', () => {
     const source = applyImport(
       board(),
-      validated({ cards: [{ title: 'One', status: 'Klar' }] }).value,
+      validated({ cards: [{ title: 'One', status: 'Done' }] }).value,
       'u1',
       'merge',
     ).doc;
 
     const result = validated(JSON.parse(JSON.stringify(source)));
-    expect(result.value.cards?.[0].status).toBe('Klar');
+    expect(result.value.cards?.[0].status).toBe('Done');
     const { doc, summary } = applyImport(board(), result.value, 'u1', 'replace');
     expect(summary.cards).toBe(1);
-    expect(doc.nodes.filter(isCardNode)[0].statusId).toBe(doc.statuses.find((s) => s.name === 'Klar')?.id);
+    expect(doc.nodes.filter(isCardNode)[0].statusId).toBe(doc.statuses.find((s) => s.name === 'Done')?.id);
   });
 });
 
@@ -231,7 +231,7 @@ describe('shape detection', () => {
   it('keeps the cards when an empty nodes array rides along', () => {
     const result = validated({
       kartaVersion: 1,
-      statuses: [{ name: 'Bygger', color: 'bronze' }],
+      statuses: [{ name: 'Building', color: 'bronze' }],
       nodes: [],
       cards: [{ title: 'Real card one' }, { title: 'Real card two' }],
     });
@@ -241,7 +241,7 @@ describe('shape detection', () => {
 
   it('keeps notes added beside an empty nodes array', () => {
     const result = validated({
-      statuses: [{ name: 'Bygger' }],
+      statuses: [{ name: 'Building' }],
       nodes: [],
       notes: [{ text: 'A sticky' }],
     });
@@ -570,7 +570,7 @@ describe('the whole round trip', () => {
     kartaVersion: 1,
     board: { title: 'Karta', icon: '📐' },
     statuses: [
-      { name: 'Bygger', color: 'bronze' },
+      { name: 'Building', color: 'bronze' },
       { name: 'Slutfört', color: 'teal', isDone: true },
     ],
     labels: [{ name: 'infra', color: 'copper' }],
@@ -579,7 +579,7 @@ describe('the whole round trip', () => {
         key: 'a',
         title: 'Sign-in with Azure AD',
         body: '# why\n\n- one\n- two\n',
-        status: 'Bygger',
+        status: 'Building',
         labels: ['infra'],
         checklist: ['Register the app', { text: 'Wire the redirect', done: true }],
         color: 'blue',
@@ -665,7 +665,7 @@ describe('the whole round trip', () => {
     expect(signIn.color).toBe('blue');
     expect(signIn.collapsed).toBe(true);
     expect(signIn.dueDate).toBe('2026-04-30T00:00:00.000Z');
-    expect(signIn.statusId).toBe(doc.statuses.find((s) => s.name === 'Bygger')?.id);
+    expect(signIn.statusId).toBe(doc.statuses.find((s) => s.name === 'Building')?.id);
     expect(signIn.labelIds).toEqual([doc.labels[0].id]);
     expect(signIn.checklist.map((i) => [i.text, i.done])).toEqual([
       ['Register the app', false],

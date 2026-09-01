@@ -61,7 +61,7 @@ describe('duplicateNodes', () => {
 
   it('keeps the references that still resolve on the same board', () => {
     const doc = emptyBoard();
-    const status = makeStatus({ id: 'S', name: 'Bygger' });
+    const status = makeStatus({ id: 'S', name: 'Building' });
     const label = makeLabel({ id: 'L', name: 'Net' });
     doc.statuses = [status];
     doc.labels = [label];

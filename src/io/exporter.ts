@@ -241,14 +241,14 @@ Format:
 {
   "kartaVersion": 1,
   "board":    { "title": "optional board title" },
-  "statuses": [ { "name": "Bygger", "color": "bronze", "isDone": false } ],
+  "statuses": [ { "name": "Building", "color": "bronze", "isDone": false } ],
   "labels":   [ { "name": "bug", "color": "copper" } ],
   "cards": [
     {
       "key": "a",                       // optional handle used by "edges" below
       "title": "Short imperative title",
       "body": "Markdown. Why this exists, what done looks like.",
-      "status": "Bygger",               // a status NAME, matched case-insensitively
+      "status": "Building",               // a status NAME, matched case-insensitively
       "labels": ["bug"],                // label NAMES, created if new
       "checklist": ["First step", { "text": "Done already", "done": true }],
       "color": "blue",                  // straw bronze copper purple blue teal slate, #RRGGBB or #RGB
@@ -281,9 +281,9 @@ Example answer:
 {
   "kartaVersion": 1,
   "cards": [
-    { "key": "auth", "title": "Sign-in with Azure AD", "status": "Planerad", "labels": ["infra"],
+    { "key": "auth", "title": "Sign-in with Azure AD", "status": "Planned", "labels": ["infra"],
       "checklist": ["Register the app", "Wire the redirect"] },
-    { "key": "roles", "title": "Role check on every route", "status": "Idé",
+    { "key": "roles", "title": "Role check on every route", "status": "Idea",
       "body": "Blocked until sign-in exists." }
   ],
   "edges": [ { "from": "roles", "to": "auth", "semantic": "depends" } ]
