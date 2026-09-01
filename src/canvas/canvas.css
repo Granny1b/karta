@@ -625,3 +625,51 @@
   stroke: none;
   cursor: grab;
 }
+
+/*
+ * The board tile's settings gear.
+ *
+ * Top-right corner, inside the tile. The bottom edge belongs to the connection
+ * handle, and the button that used to sit under the tile landed on top of it —
+ * two controls competing for the same few pixels, one of which is the whole
+ * point of the node.
+ *
+ * Quiet until wanted: invisible at rest, shown on hover or while the tile is
+ * selected, so a board of twenty links is not a board of twenty gears.
+ */
+.karta-boardlink-gear {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--ink-muted);
+  background: transparent;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) linear,
+    color var(--dur-fast) linear,
+    background-color var(--dur-fast) linear;
+}
+
+.karta-boardlink:hover .karta-boardlink-gear,
+.karta-boardlink-gear.is-on,
+.karta-boardlink-gear:focus-visible {
+  opacity: 1;
+}
+
+.karta-boardlink-gear:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+  border-color: var(--line);
+}
+
+.karta-boardlink-gear:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
