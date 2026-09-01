@@ -1,14 +1,93 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, FolderPlus, Plus, Sparkles, Trash2, X } from 'lucide-react';
-import type { BoardSummary, Id } from '@/domain/board';
-import { api } from '@/lib/api';
+import { DEFAULT_NODE_SIZE, type BoardNode, type BoardSummary, type Id } from '@/domain/board';
+import { ApiError, api } from '@/lib/api';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
+import { makeBoardLink } from '@/state/factories';
 import { boardTree, type TreeNode } from '@/state/selectors';
 import { navigateToBoard } from '@/routes';
 import { createStarterProject } from '@/board/template';
 import Button from '@/components/Button';
 import IconButton from '@/components/IconButton';
+
+/* ------------------------------------------------------------------ *
+ * Where a new child board's doorway goes
+ * ------------------------------------------------------------------ */
+
+/** The canvas's own grid (spec 7.3), so a placed node lines up with dragged ones. */
+const GRID = 8;
+/** Breathing room between the link and its neighbours — the frame padding. */
+const GAP = 24;
+/** Where the first node on an empty board goes: the margin an extract uses. */
+const ORIGIN = 80;
+/** A bound on the search, so a board the size of a city is still cheap to place on. */
+const SCAN = 24;
+
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const snap = (v: number): number => Math.round(v / GRID) * GRID;
+
+/** Touching is not overlapping: two boxes edge to edge leave the gap between them. */
+function overlaps(a: Box, b: Box): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+/**
+ * A spot on `nodes`' own grid where a board link fits without covering anything
+ * (spec 5.2: the parent reads as a dashboard, which it cannot do if the doorway
+ * lands on top of a card).
+ *
+ * The walk starts at the top-left of what is already there and reads left to
+ * right, one slot wider and one row taller than the content — so a gap in the
+ * arrangement is filled before the board grows, a full row is continued at its
+ * end, and a board of five links in a row gets a sixth beside them rather than
+ * a node somewhere off-screen. Bounded, and below everything if the bound is
+ * reached, which is always free.
+ */
+export function freeSpotForLink(
+  nodes: readonly BoardNode[],
+  size: { w: number; h: number } = DEFAULT_NODE_SIZE.boardLink,
+): { x: number; y: number } {
+  const boxes: Box[] = nodes.map((node) => ({
+    x: node.position.x,
+    y: node.position.y,
+    w: node.size.w,
+    h: node.size.h,
+  }));
+  if (boxes.length === 0) return { x: ORIGIN, y: ORIGIN };
+
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const box of boxes) {
+    left = Math.min(left, box.x);
+    top = Math.min(top, box.y);
+    right = Math.max(right, box.x + box.w);
+    bottom = Math.max(bottom, box.y + box.h);
+  }
+
+  const step = { x: size.w + GAP, y: size.h + GAP };
+  const start = { x: snap(left), y: snap(top) };
+  const cols = Math.min(SCAN, Math.ceil((right - left) / step.x) + 1);
+  const rows = Math.min(SCAN, Math.ceil((bottom - top) / step.y) + 1);
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const at = { x: start.x + col * step.x, y: start.y + row * step.y };
+      const wanted: Box = { x: at.x - GAP, y: at.y - GAP, w: size.w + GAP * 2, h: size.h + GAP * 2 };
+      if (!boxes.some((box) => overlaps(wanted, box))) return at;
+    }
+  }
+
+  return { x: start.x, y: snap(bottom + GAP) };
+}
 
 /**
  * The board tree (spec 8.3). It opens over the canvas and never resizes it, so
@@ -70,12 +149,75 @@ export default function SidebarTree(): JSX.Element | null {
     [toast],
   );
 
+  /**
+   * The doorway the new child is reached by (spec 5.2). A board that exists only
+   * in this tree is a board the canvas cannot see, and the parent stops reading
+   * as a dashboard the moment one of its children is invisible on it.
+   *
+   * Two ways in, because the parent is not always the board on screen:
+   *
+   * - The open board takes an ordinary edit — one undo entry, flushed before we
+   *   navigate away, so the link is on the server before the child opens.
+   * - Any other board is read and written back under the ETag it was read at,
+   *   which is the same guarded round trip a rename of a closed board already
+   *   takes. It is a compare-and-swap, not a blind overwrite: if that board
+   *   changed in the meantime the write is refused and *stays* refused — we do
+   *   not re-read and force — and the toast says so. Either way the write is
+   *   announced by name, so no board is edited behind the user's back.
+   */
+  const linkChildOnParent = useCallback(
+    async (parentBoardId: Id, childId: Id, childTitle: string): Promise<void> => {
+      const store = useBoardStore.getState();
+      const link = makeBoardLink({
+        targetBoardId: childId,
+        cachedTitle: childTitle,
+        // Empty, and true: the rollup is refreshed from the index on open.
+        cachedCounts: { total: 0, done: 0 },
+        userId,
+      });
+
+      if (store.boardId === parentBoardId && store.doc) {
+        link.position = freeSpotForLink(store.doc.nodes);
+        mutate('Add board link', (d) => {
+          d.nodes.push(link);
+        });
+        await save();
+        return;
+      }
+
+      const { doc, etag } = await api.getBoard(parentBoardId);
+      link.position = freeSpotForLink(doc.nodes);
+      await api.putBoard(parentBoardId, { ...doc, nodes: [...doc.nodes, link] }, etag, []);
+    },
+    [mutate, save, userId],
+  );
+
   const createBoard = useCallback(
     async (parentBoardId: Id | null) => {
       if (busy) return;
       setBusy(true);
       try {
         const created = await api.createBoard({ title: 'New board', parentBoardId });
+
+        if (parentBoardId !== null) {
+          const parent = summaries.find((b) => b.id === parentBoardId);
+          const on = `“${parent?.title ?? 'the parent board'}”`;
+          try {
+            await linkChildOnParent(parentBoardId, created.doc.id, created.doc.title);
+            toast(`Added a link on ${on}.`);
+          } catch (err) {
+            // The child board is made and listed either way; only its doorway
+            // is missing, and saying which board did not get it is the point.
+            const clash = err instanceof ApiError && err.conflict;
+            toast(
+              clash
+                ? `The board was created, but ${on} changed first — no link was added.`
+                : `The board was created, but no link could be added on ${on}.`,
+              'warn',
+            );
+          }
+        }
+
         await loadIndex();
         if (parentBoardId) setExpanded((current) => new Set(current).add(parentBoardId));
         navigateToBoard(created.doc.id);
@@ -86,7 +228,7 @@ export default function SidebarTree(): JSX.Element | null {
         setBusy(false);
       }
     },
-    [busy, loadIndex, report],
+    [busy, linkChildOnParent, loadIndex, report, summaries, toast],
   );
 
   const rename = useCallback(

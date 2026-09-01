@@ -8,12 +8,27 @@ import {
   useStore,
   type EdgeProps,
 } from '@xyflow/react';
+import type { Edge } from '@/domain/board';
 import { EDGE_STYLE, edgeColor } from '@/lib/colors';
 import EdgeToolbar from '@/canvas/EdgeToolbar';
+import { cx } from '@/canvas/cx';
+import { useSoleEdgeSelected } from '@/canvas/soleSelection';
 import type { KartaFlowEdge } from '@/canvas/types';
 
 /** Labels stop being readable long before this, so they stop being drawn. */
 const LABEL_MIN_ZOOM = 0.4;
+
+/**
+ * A 1.5 px line is a hard thing to hit. The stroke the pointer answers to is
+ * this wide and invisible, so selecting an arrow is not a test of aim.
+ */
+const HIT_WIDTH = 26;
+
+/** How far the halo stands off the line it belongs to. */
+const HALO_SPREAD = 7;
+
+/** Clear of the line, so the toolbar never sits on top of what it is editing. */
+const TOOLBAR_GAP = 12;
 
 /**
  * One component for every arrow (spec 5.3): the semantic picks the colour, dash
@@ -54,46 +69,122 @@ function SemanticEdgeView({
         ? getSmoothStepPath({ ...geometry, borderRadius: 8 })
         : getBezierPath(geometry);
 
-  const showLabel = edge.label !== null && edge.label.length > 0 && zoom >= LABEL_MIN_ZOOM;
+  // The words the arrow carries, once they are big enough to be words.
+  const chip =
+    edge.label !== null && edge.label.length > 0 && zoom >= LABEL_MIN_ZOOM ? edge.label : null;
 
   return (
     <>
-      {selected && (
-        <path d={path} fill="none" className="karta-edge-halo" strokeWidth={look.width + 6} />
-      )}
+      {/*
+        Always drawn, never visible until it is asked for: hover and selection
+        are the same shape at two strengths, which is one idea instead of two.
+      */}
+      <path
+        d={path}
+        fill="none"
+        className={cx('karta-edge-halo', selected === true && 'is-on')}
+        strokeWidth={look.width + HALO_SPREAD}
+      />
       <BaseEdge
         path={path}
         markerEnd={markerEnd}
-        interactionWidth={interactionWidth ?? 20}
+        interactionWidth={interactionWidth ?? HIT_WIDTH}
         style={{
           stroke,
-          strokeWidth: selected ? look.width + 0.75 : look.width,
+          strokeWidth: look.width,
           strokeDasharray: look.dash,
+          // A dash is a row of ticks; rounding the ends would close the gaps.
+          strokeLinecap: look.dash === undefined ? 'round' : 'butt',
+          strokeLinejoin: 'round',
         }}
       />
-      {(showLabel || selected) && (
+      {(chip !== null || selected === true) && (
         <EdgeLabelRenderer>
-          {showLabel && !selected && (
-            <div
-              className="karta-edge-label nodrag nopan"
-              style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, borderColor: stroke }}
-            >
-              {edge.label}
-            </div>
-          )}
-          {selected && (
-            <div
-              className="karta-edge-toolbar-anchor nodrag nopan"
-              style={{
-                transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px) scale(${1 / Math.max(zoom, 0.1)})`,
-              }}
-            >
-              <EdgeToolbar edge={edge} />
-            </div>
-          )}
+          {selected === true ? (
+            <SelectedEdgeChrome
+              edge={edge}
+              label={chip}
+              stroke={stroke}
+              x={labelX}
+              y={labelY}
+              zoom={zoom}
+            />
+          ) : chip !== null ? (
+            <EdgeChip text={chip} stroke={stroke} x={labelX} y={labelY} />
+          ) : null}
         </EdgeLabelRenderer>
       )}
     </>
+  );
+}
+
+/** The arrow's own words, quietly tinted by the line they name. */
+function EdgeChip({
+  text,
+  stroke,
+  x,
+  y,
+}: {
+  text: string;
+  stroke: string;
+  x: number;
+  y: number;
+}): JSX.Element {
+  return (
+    <div
+      className="karta-edge-label karta-edge-chip nodrag nopan"
+      style={{
+        transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
+        borderColor: `color-mix(in srgb, ${stroke} 55%, var(--line))`,
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+/**
+ * What a selected arrow shows.
+ *
+ * The editor belongs to one arrow. A marquee selects every arrow it crosses,
+ * and a panel per arrow is neither usable nor free — each is some forty
+ * elements, two store subscriptions and a field of its own, built and thrown
+ * away again as the rectangle grows. So an arrow caught in a crowd keeps its
+ * label and wears the halo, and the panel goes to the arrow that *is* the
+ * selection.
+ */
+function SelectedEdgeChrome({
+  edge,
+  label,
+  stroke,
+  x,
+  y,
+  zoom,
+}: {
+  edge: Edge;
+  label: string | null;
+  stroke: string;
+  x: number;
+  y: number;
+  zoom: number;
+}): JSX.Element | null {
+  const sole = useSoleEdgeSelected();
+  if (!sole) return label === null ? null : <EdgeChip text={label} stroke={stroke} x={x} y={y} />;
+
+  return (
+    <div
+      className="karta-edge-toolbar-anchor nodrag nopan"
+      style={{
+        /*
+         * Anchor, then undo the camera, then place the panel — in that order,
+         * so the toolbar is the same size and sits the same distance above the
+         * line at every zoom.
+         */
+        transform: `translate(${x}px, ${y}px) scale(${1 / Math.max(zoom, 0.1)}) translate(-50%, calc(-100% - ${TOOLBAR_GAP}px))`,
+      }}
+    >
+      <EdgeToolbar edge={edge} />
+    </div>
   );
 }
 

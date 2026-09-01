@@ -50,7 +50,9 @@ Format:
       "collapsed": false
     }
   ],
-  "notes": [ { "key": "n1", "text": "A sticky note on the canvas", "color": "straw" } ],
+  "notes":  [ { "key": "n1", "text": "A sticky note on the canvas", "color": "straw" } ],
+  "texts":  [ { "text": "Section heading", "fontSize": 32, "weight": "bold" } ],
+  "shapes": [ { "key": "s1", "shape": "diamond", "label": "Ready?", "fill": "blue" } ],
   "edges": [
     { "from": "a", "to": "Other card title", "semantic": "depends", "label": "needs" }
   ]
@@ -59,8 +61,12 @@ Format:
 Rules:
 - Only "title" is required on a card. Everything else is optional.
 - "from" and "to" are card keys, or exact card titles.
-- A "key" must be unique across cards *and* notes.
+- A "key" must be unique across cards, notes, texts and shapes.
 - "semantic" is one of: relates, depends, blocks, derives. Default is relates.
+- "shape" is one of: rectangle, roundedRect, ellipse, diamond, triangle, hexagon,
+  cylinder, parallelogram, cloud, document, process, callout.
+- "texts" are headings laid on the canvas and "shapes" are flowchart boxes;
+  leave both out unless I ask for a diagram.
 - Leave positions out; Karta lays the cards out in a grid.
 - Use 5 to 15 cards unless I ask for more. Titles under 60 characters.
 
@@ -83,7 +89,9 @@ Here is what I want on the board:
 | `labels` | array | Optional. Labels are also created on demand from card `labels`. |
 | `cards` | array | The cards. |
 | `notes` | array | Optional. Sticky notes; canvas only, they never appear in the kanban view. |
-| `edges` | array | Optional. Arrows between cards. |
+| `texts` | array | Optional. Free text laid on the canvas. Canvas only. |
+| `shapes` | array | Optional. Flowchart shapes. Canvas only. |
+| `edges` | array | Optional. Arrows between anything with a `key`. |
 
 A **bare array** is accepted as `cards`, so `[{ "title": "One" }, { "title": "Two" }]` is a valid
 import. A **full board export** (the *Full* tab) is accepted too, and is converted automatically.
@@ -106,7 +114,7 @@ and the array that was not used is reported as an ignored field rather than drop
 | Field | Type | Notes |
 |---|---|---|
 | `title` | string | **Required**, but may be `""` — a card whose title was cleared is still a card. |
-| `key` | string | A local handle for `edges` to point at. Never stored. Unique across cards *and* notes. |
+| `key` | string | A local handle for `edges` to point at. Never stored. Unique across cards, notes, texts *and* shapes. |
 | `body` | string | Markdown. Whitespace is preserved. |
 | `status` | string | A status *name*. Unknown names create a new column at the end. |
 | `labels` | string[] | Label *names*. Unknown names create a label with the default colour. Repeats of the same name, in any case, are dropped. |
@@ -121,13 +129,42 @@ and the array that was not used is reported as an ignored field rather than drop
 | Field | Type | Notes |
 |---|---|---|
 | `text` | string | **Required**, but may be `""` — an untouched sticky note has no text. |
-| `key`, `color`, `position` | | As for cards. A `key` shares one namespace with the cards': if the same one appears twice, the first to claim it keeps it, and the second is warned about. |
+| `key`, `color`, `position` | | As for cards. Every node list shares one key namespace: if the same key appears twice, the first to claim it keeps it, and the second is warned about. |
+
+### `texts[]`
+
+A heading or an aside written straight onto the board — no frame, no fill.
+
+| Field | Type | Notes |
+|---|---|---|
+| `text` | string | **Required**, but may be `""` — a text box created and not yet typed into is still one. |
+| `fontSize` | number | Canvas pixels, 8–200. Default 20. Out of range warns and uses the default. |
+| `align` | string | `left` (default), `center`, `right`. |
+| `weight` | string | `regular` (default) or `bold`. |
+| `color` | string | The **ink**, not a background — token or hex, see **Colours**. |
+| `key`, `position` | | As for cards. |
+
+A bare string in `texts` is the text: `"texts": ["Phase one", "Phase two"]`.
+
+### `shapes[]`
+
+The draw.io vocabulary, for a flowchart drawn beside the cards.
+
+| Field | Type | Notes |
+|---|---|---|
+| `shape` | string | **Required.** One of `rectangle`, `roundedRect`, `ellipse`, `diamond`, `triangle`, `hexagon`, `cylinder`, `parallelogram`, `cloud`, `document`, `process`, `callout`. An unknown name warns and draws a rectangle. |
+| `label` | string | Text centred inside the shape. |
+| `fill` | string | Token or hex. Omit for an outline-only shape. |
+| `stroke` | string | Token or hex. Omit for the default line colour. |
+| `key`, `position` | | As for cards. |
+
+A bare string in `shapes` is the shape name: `"shapes": ["diamond", "cloud"]`.
 
 ### `edges[]`
 
 | Field | Type | Notes |
 |---|---|---|
-| `from`, `to` | string | **Required.** A card `key`, or a card title. |
+| `from`, `to` | string | **Required.** A `key` — of a card, note, text or shape — or a card title. |
 | `semantic` | string | `relates` (default), `depends`, `blocks`, `derives`. |
 | `label` | string | Optional text drawn on the arrow. |
 
@@ -141,7 +178,8 @@ ambiguous title raises a warning rather than an error.
 steel, matched whatever the case (`Blue` is `blue`). Statuses and labels take a token and nothing
 else; a hex value there is ignored with a warning.
 
-Cards and notes also take a **custom hex colour**, written any of these ways:
+Cards, notes, texts and shape `fill`/`stroke` also take a **custom hex colour**, written any of
+these ways:
 
 | Written | Stored |
 |---|---|
@@ -164,8 +202,9 @@ longer is **cut to the limit and reported as a warning** — the import still go
 | Card title, board title, `edges[].from`/`to`/`label` | 300 |
 | Status name, label name | 120 |
 | Board `icon` | 64 |
+| Shape label | 300 |
 | Checklist item text | 2 000 |
-| Note text | 20 000 |
+| Note text, text-node text | 20 000 |
 | Card body | 200 000 |
 
 `from`/`to` are cut at the same 300 characters as a title, so an arrow that names a shortened title
@@ -267,5 +306,6 @@ Both are a single undo step. Merge is never destructive: it adds, and only adds.
 Images, groups and board links live only in the full board document. A *Portable* export skips
 them (and says so), and an arrow with one end on a skipped node is skipped with it. Use
 **Export → Full** for a true backup: everything a *Portable* export carries — statuses, labels,
-colours, checklists, due dates, collapsed cards, arrows and their semantics — comes back exactly as
-it went out, and the round trip is covered by a test in `src/io/importer.test.ts`.
+colours, checklists, due dates, collapsed cards, notes, texts, shapes, arrows and their semantics —
+comes back exactly as it went out, and the round trip is covered by a test in
+`src/io/importer.test.ts`.

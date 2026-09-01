@@ -1,5 +1,5 @@
 import { del, get, set } from 'idb-keyval';
-import type { BoardDoc, Id, Iso } from '@/domain/board';
+import { SCHEMA_VERSION, type BoardDoc, type Id, type Iso } from '@/domain/board';
 import { nowIso } from '@/lib/format';
 
 /**
@@ -23,6 +23,35 @@ export interface WalEntry {
 
 const key = (boardId: Id): string => `wal:${boardId}`;
 
+/**
+ * The oldest document version this build can adopt from the log as it stands.
+ *
+ * The log outlives a release: the entry on disk was stamped by whichever build
+ * wrote it, and the one reading it may be a deploy later. Every schema step so
+ * far has been additive — a version 1 document already *is* a well-formed
+ * version 2 one, which is why `api/src/domain/migrate.ts` walks 1 → 2 with the
+ * identity — so an entry from the previous deploy is restamped and restored.
+ * When a step stops being additive this number moves up with it, and entries
+ * older than it are left alone rather than restored wrong.
+ */
+const OLDEST_READABLE_VERSION = 1;
+
+/**
+ * Bring a stored document up to the version this build speaks, or refuse it.
+ *
+ * The version is part of what is recovered, not a detail carried along with
+ * it: the API accepts what it can migrate, so an entry restored at its old
+ * version — or at one from a build newer than this bundle — is work that can
+ * never be saved. Refusing leaves the entry on disk untouched for the build
+ * that does understand it.
+ */
+function readableDoc(doc: BoardDoc): BoardDoc | null {
+  const version: unknown = doc.schemaVersion;
+  if (typeof version !== 'number' || !Number.isInteger(version)) return null;
+  if (version < OLDEST_READABLE_VERSION || version > SCHEMA_VERSION) return null;
+  return version === SCHEMA_VERSION ? doc : { ...doc, schemaVersion: SCHEMA_VERSION };
+}
+
 let warned = false;
 
 function warn(action: string, err: unknown): void {
@@ -45,8 +74,10 @@ export async function readWal(boardId: Id): Promise<WalEntry | null> {
     const entry = await get<WalEntry>(key(boardId));
     if (!entry || typeof entry !== 'object') return null;
     if (!entry.doc || entry.doc.id !== boardId) return null;
+    const doc = readableDoc(entry.doc);
+    if (!doc) return null;
     // An entry written before the ETag was recorded reads as "base unknown".
-    return { ...entry, etag: typeof entry.etag === 'string' ? entry.etag : null };
+    return { ...entry, doc, etag: typeof entry.etag === 'string' ? entry.etag : null };
   } catch (err) {
     warn('read', err);
     return null;
@@ -69,9 +100,19 @@ export async function clearWal(boardId: Id): Promise<void> {
  * Fields that say nothing about whether an edit reached the server. The `PUT`
  * handler restamps `updatedAt` and takes `id`, `createdAt` and `acl` from the
  * stored document, and the camera is written on its own last-one-wins path
- * (spec 6.1) rather than through the write-ahead log.
+ * (spec 6.1) rather than through the write-ahead log. `schemaVersion` belongs
+ * here for the same reason: it is stamped by whichever build wrote the entry,
+ * so a release on its own would otherwise make every leftover entry look like
+ * unsaved work and greet the user with a recovery prompt for nothing.
  */
-const NOT_WORK: ReadonlySet<string> = new Set(['updatedAt', 'createdAt', 'id', 'acl', 'viewport']);
+const NOT_WORK: ReadonlySet<string> = new Set([
+  'updatedAt',
+  'createdAt',
+  'id',
+  'acl',
+  'viewport',
+  'schemaVersion',
+]);
 
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;

@@ -261,7 +261,7 @@ type Id = string;          // ULID — sortable, 26 chars
 type Iso = string;         // ISO 8601 UTC
 
 interface BoardDoc {
-  schemaVersion: 1;
+  schemaVersion: 2;
   id: Id;
   parentBoardId: Id | null;
   title: string;
@@ -315,7 +315,14 @@ interface NodeBase {
   locked: boolean;
 }
 
-type BoardNode = CardNode | ImageNode | NoteNode | BoardLinkNode | GroupNode;
+type BoardNode =
+  | CardNode
+  | ImageNode
+  | NoteNode
+  | BoardLinkNode
+  | GroupNode
+  | TextNode
+  | ShapeNode;
 ```
 
 **`CardNode`** — the workhorse. Appears on the canvas and in the kanban view.
@@ -373,6 +380,48 @@ interface BoardLinkNode extends NodeBase {
 interface GroupNode extends NodeBase { kind: 'group'; title: string; padding: number }
 ```
 
+**`TextNode`** — words laid straight on the field: a heading over a cluster, an aside beside a
+diagram. No frame, no fill, no shadow. `NodeBase.color` is the ink, and the size is stored in
+canvas units so a label keeps its weight against the nodes around it at every zoom.
+
+```ts
+interface TextNode extends NodeBase {
+  kind: 'text';
+  text: string;
+  fontSize: number;                // canvas px; default 20, clamped 8–200
+  align: 'left' | 'center' | 'right';
+  weight: 'regular' | 'bold';
+}
+```
+
+**`ShapeNode`** — the draw.io vocabulary, so a board can carry a diagram without becoming a
+second app. Twelve silhouettes and nothing more: each one is a path generator parameterised by
+the node's box, so a shape resizes by being redrawn rather than stretched, and a label is
+centred inside the outline rather than inside the bounding box.
+
+```ts
+type ShapeKind =
+  | 'rectangle' | 'roundedRect' | 'ellipse' | 'diamond'
+  | 'triangle'  | 'hexagon'     | 'cylinder' | 'parallelogram'
+  | 'cloud'     | 'document'    | 'process'  | 'callout';
+
+interface ShapeNode extends NodeBase {
+  kind: 'shape';
+  shape: ShapeKind;
+  label: string;                   // centred inside the outline, ≤ 300 chars
+  fill: ColorToken | HexColor | null;     // null = no fill, outline only
+  stroke: ColorToken | HexColor | null;   // null = --line-strong
+}
+```
+
+Neither kind carries a status, a rank or a checklist, because neither is work — they are the
+drawing around the work. That is what keeps them off the kanban board (7.4).
+
+**Schema version 2** added `text` and `shape`. Purely additive: every node kind that existed
+under 1 has exactly the same shape under 2, so the forward migration in
+`api/src/domain/migrate.ts` is the identity. It is still registered rather than special-cased,
+because the version loop is one rule and not a list of exceptions.
+
 ### 5.3 Edges
 
 Arrows carry meaning, not decoration. The semantic type picks the default colour and dash
@@ -407,7 +456,7 @@ exists so the sidebar tree and the `boardLink` rollups cost one blob read instea
 
 ```ts
 interface BoardIndex {
-  schemaVersion: 1;
+  schemaVersion: 2;
   updatedAt: Iso;
   boards: BoardSummary[];
 }
@@ -673,9 +722,15 @@ React Flow does the heavy lifting. What is configured:
 | < 0.25 | filled rounded rectangle in the card colour, no text |
 
 **Drawing arrows:** each card exposes four handles that appear on hover. Drag from a handle to
-any other node to create an edge. Drop on empty canvas to get a small menu — *New card here*,
-*New note here*, *Cancel* — so the arrow gesture is also the fastest way to create the next
-card. Default semantic is `relates`; changing it is a click on the edge.
+any other node to create an edge. Drop on empty canvas to get a menu at the pointer — card,
+note, text, any of the twelve shapes, *Cancel* — so the arrow gesture is also the fastest way to
+create the next thing. Right-clicking bare canvas opens the same menu with nothing to connect
+to. Default semantic is `relates`; changing it is a click on the edge.
+
+**The palette:** a rail in the top-left corner holding the three card kinds, with the twelve
+shapes in a grid that expands under it. Every cell can be dragged onto the field or clicked to
+place at the viewport centre. It is the same list the drop menu shows, from the same array —
+two lists that must agree eventually will not.
 
 **Nested boards:** double-clicking a `boardLink` node navigates into that board. The header
 carries a breadcrumb built from `parentBoardId` in the index. Any selection of nodes can be
@@ -699,7 +754,8 @@ The same board, projected. `Tab` toggles canvas ↔ columns; the toggle is per-b
 remembered locally.
 
 - Columns come from `statuses`, in `order`, plus a leading "No status" column.
-- Only `card` nodes appear. Notes, images, groups and board links are canvas-only.
+- Only `card` nodes appear. Notes, images, groups, board links, text and shapes are canvas-only
+  — they are the drawing around the work, not the work, and a column of them says nothing.
 - Optional toggle: *Include nested boards*, which walks children one level deep and prefixes
   each card with its board name.
 - Dragging between columns sets `statusId`; dragging within a column sets `rank`. Canvas
@@ -791,6 +847,12 @@ Two families, clearly distinct in width rather than in style:
 - **IBM Plex Mono** — restricted to board ids, ETags and the debug panel. It never appears as a
   label style.
 
+The webfonts load with `display=swap`, so each family is paired with a metric-compatible
+fallback face: whatever grotesque the machine already has, overridden to Plex's own vertical
+metrics. The swap then changes the glyphs and not the line box, and a board of forty card titles
+does not jump when the font lands. One stack per family, written once as a token — nothing
+spells out a font list of its own.
+
 Sentence case everywhere. No tracked-out capitals, no eyebrow labels above headings.
 
 ### 8.3 Chrome
@@ -800,9 +862,14 @@ Sentence case everywhere. No tracked-out capitals, no eyebrow labels above headi
 - The left sidebar (board tree) is collapsed by default and opens over the canvas, not beside
   it — the canvas never resizes when navigating.
 - The card editor is a right-hand panel, 380 px, that slides in. Double-click a card to open.
+- Everything that floats over the canvas — the shape palette top-left, the status dock
+  bottom-left, the view toolbar bottom-centre, the zoom controls bottom-right — sits on one
+  12 px inset from the edge it belongs to. Four corners each choosing their own inset is the
+  loudest thing on a screen, so the number is stated once and read, never retyped.
 - Cards have no shadow at rest — a 1 px `--line` border only. A shadow appears **while
-  dragging**, and disappears on drop. Motion answers the action and nothing else: no entrance
-  animations, no hover lifts.
+  dragging**, and disappears on drop; its offset, blur and opacity are one token, so a card and
+  a shape in the air cast the same one. Motion answers the action and nothing else: no entrance
+  animations, no hover lifts, two durations and no easing curve.
 - Save state is a single word in the top bar: *Saved*, *Saving…*, *Offline*. Never a spinner
   over the canvas.
 
@@ -820,10 +887,14 @@ Sentence case everywhere. No tracked-out capitals, no eyebrow labels above headi
 | Key | Action |
 |---|---|
 | Double-click canvas | new card at cursor |
+| Right-click canvas | pick what to add, at cursor |
 | `N` | new card at viewport centre |
 | `Shift+N` | new note |
+| `T` | new text |
+| `S` | pick a shape |
 | `Ctrl+V` | paste image or card |
 | `Enter` (node selected) | open editor panel |
+| `C` | collapse selected cards to title only, or expand them |
 | `Esc` | close panel / cancel edge draw / clear selection |
 | `Tab` | toggle canvas ↔ kanban |
 | `Space` + drag | pan |

@@ -2,14 +2,17 @@ import Dialog from '@/components/Dialog';
 import { useUiStore } from '@/state/uiStore';
 
 /**
- * Spec section 9, plus the two keys the canvas needs to make that table true:
+ * Spec section 9, plus the keys the canvas needs to make that table true:
  * `Ctrl+C`, without which `Ctrl+V` has no card to paste, and `C`, which reaches
  * the title-only rendering spec 5.2 gives a card.
  */
 const SHORTCUTS: ReadonlyArray<{ keys: string[]; action: string }> = [
   { keys: ['Double-click canvas'], action: 'New card at the cursor' },
+  { keys: ['Right-click canvas'], action: 'Pick what to add at the cursor' },
   { keys: ['N'], action: 'New card at the centre of the view' },
   { keys: ['Shift', 'N'], action: 'New note' },
+  { keys: ['T'], action: 'New text' },
+  { keys: ['S'], action: 'Pick a shape' },
   { keys: ['Ctrl', 'C'], action: 'Copy the selection' },
   { keys: ['Ctrl', 'V'], action: 'Paste an image or a card' },
   { keys: ['Enter'], action: 'Open the editor for the selected node' },

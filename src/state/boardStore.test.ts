@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BoardDoc, BoardIndex, Id, Me } from '@/domain/board';
+import { SCHEMA_VERSION, type BoardDoc, type BoardIndex, type Id, type Me } from '@/domain/board';
 import { makeBoard, makeCard } from '@/state/factories';
 import type { WalEntry } from '@/state/wal';
 
@@ -22,6 +22,8 @@ interface Fake {
   wal: WalEntry | null;
   walWrites: { doc: BoardDoc; etag: string | null }[];
   walClears: number;
+  /** When set, every PUT comes back as a 400 carrying these field errors. */
+  reject: string[] | null;
 }
 
 function seedDoc(): BoardDoc {
@@ -45,6 +47,7 @@ const fake: Fake = {
   wal: null,
   walWrites: [],
   walClears: 0,
+  reject: null,
 };
 
 function resetFake(): void {
@@ -59,6 +62,7 @@ function resetFake(): void {
   fake.wal = null;
   fake.walWrites = [];
   fake.walClears = 0;
+  fake.reject = null;
 }
 
 function releasePuts(): void {
@@ -71,10 +75,10 @@ function releasePuts(): void {
 /** Filled in by the mock factory below, so the store's `instanceof` checks hold. */
 const real: { ApiError: typeof import('@/lib/api').ApiError | null } = { ApiError: null };
 
-function apiError(status: number, message: string): Error {
+function apiError(status: number, message: string, body?: unknown): Error {
   const ApiError = real.ApiError;
   if (!ApiError) throw new Error('the api mock has not been initialised');
-  return new ApiError(status, message);
+  return new ApiError(status, message, body);
 }
 
 const fakeApi = {
@@ -83,7 +87,7 @@ const fakeApi = {
   },
   async getIndex(): Promise<BoardIndex> {
     return {
-      schemaVersion: 1,
+      schemaVersion: SCHEMA_VERSION,
       updatedAt: fake.doc.updatedAt,
       boards: [
         {
@@ -106,6 +110,15 @@ const fakeApi = {
   async putBoard(_id: Id, doc: BoardDoc, ifMatch: string | null): Promise<{ doc: BoardDoc; etag: string }> {
     fake.puts.push({ doc, ifMatch });
     if (fake.hold) await new Promise<void>((resume) => fake.waiting.push(resume));
+    if (fake.reject) {
+      // The shape `api/src/functions/_shared/respond.ts` puts on the wire.
+      throw apiError(400, 'The board document is not valid.', {
+        error: 'The board document is not valid.',
+        code: 'bad_request',
+        message: 'The board document is not valid.',
+        details: fake.reject,
+      });
+    }
     if (ifMatch !== fake.etag) throw apiError(412, 'This board changed somewhere else');
     fake.version += 1;
     fake.clockMs += 1_000;
@@ -340,5 +353,104 @@ describe('the write-ahead log', () => {
     expect(fake.walClears).toBe(cleared); // the only copy of the edit survives
     expect(entry).not.toBeNull();
     expect(entry ? titleOf(entry.doc, 'A') : '').toBe('Not saved yet');
+  });
+});
+
+/*
+ * Every creation path on the canvas — the palette, the toolbar, a drop, a
+ * double-click, a shortcut, a stub, the menu an arrow opens — ends in
+ * `createAt`. What is asserted here is the promise that makes those paths
+ * interchangeable: one gesture is one entry in the undo stack, whether it put
+ * one thing on the board or two.
+ */
+describe('createAt', () => {
+  it('commits a node and the arrow to it in a single write', async () => {
+    const store = await openBoard();
+    const { createAt } = await import('@/canvas/dragCreate');
+    const before = store.getState().undoStack.length;
+
+    const node = createAt(
+      { kind: 'shape', shape: 'diamond' },
+      { x: 400, y: 200 },
+      { source: 'A', sides: { sourceHandle: 'right', targetHandle: 'left' } },
+    );
+    await settle();
+
+    const doc = store.getState().doc;
+    expect(node?.kind).toBe('shape');
+    expect(store.getState().undoStack.length).toBe(before + 1);
+    expect(doc?.nodes.some((n) => n.id === node?.id)).toBe(true);
+    expect(doc?.edges).toHaveLength(1);
+    expect(doc?.edges[0]).toMatchObject({
+      source: 'A',
+      target: node?.id,
+      sourceHandle: 'right',
+      targetHandle: 'left',
+    });
+
+    store.getState().undo();
+    await settle();
+
+    const undone = store.getState().doc;
+    expect(undone?.nodes.some((n) => n.id === node?.id)).toBe(false);
+    expect(undone?.edges).toHaveLength(0);
+  });
+
+  it('adds a node on its own when nothing asked for an arrow', async () => {
+    const store = await openBoard();
+    const { createAt } = await import('@/canvas/dragCreate');
+
+    const node = createAt({ kind: 'text' }, { x: 0, y: 0 });
+    await settle();
+
+    expect(node?.kind).toBe('text');
+    expect(store.getState().doc?.edges).toHaveLength(0);
+  });
+});
+
+describe('a document the server refuses', () => {
+  /** The ui store the freshly imported board store is actually talking to. */
+  async function toasts(): Promise<{ message: string }[]> {
+    const ui = await import('@/state/uiStore');
+    return ui.useUiStore.getState().toasts;
+  }
+
+  it('names the field at fault and does not repeat the toast on every autosave', async () => {
+    const store = await openBoard();
+    fake.reject = ['doc.nodes[0].label: longer than 300 characters'];
+
+    store.getState().updateNode('A', { title: 'Edited' });
+    await vi.advanceTimersByTimeAsync(1_600);
+
+    const error = store.getState().error ?? '';
+    expect(error).toContain('doc.nodes[0].label: longer than 300 characters');
+    expect(error).toContain('Ctrl+Z'); // and the one move that gets out of it
+    expect(store.getState().saveState).toBe('idle');
+    expect(store.getState().dirty).toBe(true); // the work is still here
+    expect(await toasts()).toHaveLength(1);
+
+    // A 400 is the same answer every time, so the next attempt must not shout.
+    store.getState().updateNode('A', { title: 'Edited again' });
+    await vi.advanceTimersByTimeAsync(1_600);
+
+    expect(fake.puts.length).toBe(2);
+    expect(await toasts()).toHaveLength(1);
+  });
+
+  it('saves again as soon as the document is acceptable', async () => {
+    const store = await openBoard();
+    fake.reject = ['doc.nodes[0].label: longer than 300 characters'];
+    store.getState().updateNode('A', { title: 'Edited' });
+    await vi.advanceTimersByTimeAsync(1_600);
+    expect(store.getState().error).not.toBeNull();
+
+    fake.reject = null;
+    store.getState().updateNode('A', { title: 'Shorter' });
+    await vi.advanceTimersByTimeAsync(1_600);
+
+    expect(store.getState().error).toBeNull();
+    expect(store.getState().saveState).toBe('saved');
+    expect(store.getState().dirty).toBe(false);
+    expect(titleOf(fake.doc, 'A')).toBe('Shorter');
   });
 });

@@ -6,6 +6,9 @@ import { isEditableTarget, matchShortcut } from '@/lib/keys';
 export interface CanvasShortcutHandlers {
   newCard(): void;
   newNote(): void;
+  newText(): void;
+  /** Twelve shapes cannot be one key, so this opens the picker (spec 5.2). */
+  newShape(): void;
   openEditor(): void;
   escape(): void;
   duplicate(): void;
@@ -134,6 +137,14 @@ export function useCanvasShortcuts(enabled: boolean, handlers: CanvasShortcutHan
         case 'new-note':
           event.preventDefault();
           h.newNote();
+          break;
+        case 'new-text':
+          event.preventDefault();
+          h.newText();
+          break;
+        case 'new-shape':
+          event.preventDefault();
+          h.newShape();
           break;
         case 'open-editor':
           // Spec 9 scopes this to "Enter (node selected)", which is the canvas

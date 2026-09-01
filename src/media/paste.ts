@@ -5,7 +5,7 @@
  * pointing at nothing.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Id } from '@/domain/board';
 import { useBoardStore } from '@/state/boardStore';
 import { makeImageNode } from '@/state/factories';
@@ -200,5 +200,14 @@ export function useCanvasImageDrop(
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
   }, []);
 
-  return { onPaste, onDrop, onDragOver, pointerPosition, uploading: pending > 0 };
+  /*
+   * One object for as long as its parts hold still. The canvas builds four
+   * callbacks on top of this one, and a fresh literal here would take a new
+   * identity on every render of the surface — including the frames of a
+   * marquee, where the selection count changes and nothing else does.
+   */
+  return useMemo<CanvasImageDrop>(
+    () => ({ onPaste, onDrop, onDragOver, pointerPosition, uploading: pending > 0 }),
+    [onDragOver, onDrop, onPaste, pending, pointerPosition],
+  );
 }

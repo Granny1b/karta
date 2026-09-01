@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BoardIndex } from '@/domain/board';
+import { SCHEMA_VERSION, type BoardIndex } from '@/domain/board';
 import { makeCard } from '@/state/factories';
 import { boardTree, matchesFilter, progressOf } from '@/state/selectors';
 import { EMPTY_FILTER } from '@/state/uiStore';
@@ -43,7 +43,7 @@ describe('matchesFilter', () => {
 describe('boardTree', () => {
   it('nests children, drops deleted boards and lifts orphans to the root', () => {
     const index: BoardIndex = {
-      schemaVersion: 1,
+      schemaVersion: SCHEMA_VERSION,
       updatedAt: '2026-01-01T00:00:00.000Z',
       boards: [
         summary('r', null, 'Root'),
@@ -59,7 +59,7 @@ describe('boardTree', () => {
 
   it('survives a cyclic parent chain', () => {
     const index: BoardIndex = {
-      schemaVersion: 1,
+      schemaVersion: SCHEMA_VERSION,
       updatedAt: '2026-01-01T00:00:00.000Z',
       boards: [summary('a', 'b', 'A'), summary('b', 'a', 'B')],
     };

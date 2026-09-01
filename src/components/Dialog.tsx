@@ -20,15 +20,9 @@ export interface DialogProps {
   width?: DialogWidth;
   /** Suppresses Escape and the backdrop click, for a dialog that must be answered. */
   dismissible?: boolean;
-  /** Where focus lands on open. Defaults to the first focusable in the panel. */
+  /** Where focus lands on open. Defaults to the panel itself. */
   initialFocus?: RefObject<HTMLElement | null>;
 }
-
-const WIDTH: Record<DialogWidth, string> = {
-  sm: 'max-w-[420px]',
-  md: 'max-w-[560px]',
-  lg: 'max-w-[800px]',
-};
 
 const FOCUSABLE = [
   'a[href]',
@@ -60,17 +54,36 @@ export default function Dialog({
     const panel = panelRef.current;
     if (!panel) return [];
     return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-      (el) => el.offsetParent !== null || el === document.activeElement,
+      // `offsetParent` lies about anything positioned `fixed`; boxes do not.
+      (el) => el.getClientRects().length > 0 || el === document.activeElement,
     );
   }, []);
 
-  // Focus moves in on open and back to wherever it was on close.
+  /*
+   * Focus moves onto the panel rather than onto the first control in it, which
+   * is the close button: landing on Close reads as "the only thing here is a way
+   * out", and it means a screen reader announces that button instead of the
+   * title of the thing that just opened. Tab from there reaches the controls in
+   * order. On close it goes back to whatever opened the dialog, unless that has
+   * since left the document.
+   */
   useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const first = panelRef.current?.querySelector<HTMLElement>(FOCUSABLE);
-    (initialFocus?.current ?? first ?? panelRef.current)?.focus();
-    return () => previous?.focus();
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    (initialFocus?.current ?? panelRef.current)?.focus();
+    return () => {
+      if (opener?.isConnected === true) opener.focus();
+    };
   }, [initialFocus]);
+
+  // Nothing behind the backdrop scrolls while it is up.
+  useEffect(() => {
+    const { body } = document;
+    const previous = body.style.overflow;
+    body.style.overflow = 'hidden';
+    return () => {
+      body.style.overflow = previous;
+    };
+  }, []);
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (e.key === 'Escape') {
@@ -103,8 +116,10 @@ export default function Dialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4"
+      className="karta-modal-scrim"
       onMouseDown={(e) => {
+        // Mouse down, not click: a selection dragged out of the body and
+        // released over the backdrop must not count as dismissing the dialog.
         if (dismissible && e.target === e.currentTarget) onClose();
       }}
     >
@@ -113,20 +128,21 @@ export default function Dialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        data-width={width}
         tabIndex={-1}
         onKeyDown={onKeyDown}
-        className={`flex max-h-[86vh] w-full ${WIDTH[width]} flex-col rounded-[var(--radius)] border border-line bg-raised text-ink outline-none`}
+        className="karta-modal"
       >
-        <header className="flex items-center gap-2 border-b border-line px-4 py-3">
-          <h2 id={titleId} className="min-w-0 flex-1 truncate font-condensed text-[17px] font-semibold">
+        <header className="karta-modal-head">
+          <h2 id={titleId} className="karta-modal-title">
             {title}
           </h2>
           <IconButton label="Close" size="sm" icon={<X size={16} />} onClick={onClose} />
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">{children}</div>
+        <div className="karta-modal-body">{children}</div>
 
-        {footer ? <footer className="flex items-center justify-end gap-2 border-t border-line px-4 py-3">{footer}</footer> : null}
+        {footer ? <footer className="karta-modal-foot">{footer}</footer> : null}
       </div>
     </div>
   );

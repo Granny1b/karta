@@ -130,6 +130,8 @@ let mutationSeq = 0;
 /** Boards already warned about size, so the toast fires once per session. */
 const sizeWarned = new Set<Id>();
 let hardStoppedBoard: Id | null = null;
+/** Boards the server has refused as invalid, so that toast fires once too. */
+let rejectedBoard: Id | null = null;
 
 function toast(message: string, kind: ToastKind = 'info'): void {
   useUiStore.getState().toast(message, kind);
@@ -148,6 +150,29 @@ function describe(err: unknown, fallback: string): string {
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error && err.message) return err.message;
   return fallback;
+}
+
+/** The first field the API named as invalid, e.g. `doc.nodes[3].label: ...`. */
+function firstDetail(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const details = (body as { details?: unknown }).details;
+  if (!Array.isArray(details)) return null;
+  const first = details.find((d): d is string => typeof d === 'string' && d.trim().length > 0);
+  return first === undefined ? null : first.trim().slice(0, 160);
+}
+
+/**
+ * A 400 is not a hiccup to retry: the document as it stands will be refused by
+ * every save that follows it, so the message has to name the field at fault
+ * and the one move that gets out of it. "Could not save this board", repeated
+ * on a timer with nothing to act on, is how a board ends up silently unsaved.
+ */
+function rejectedMessage(err: ApiError): string {
+  const detail = firstDetail(err.body);
+  const escape = 'Undo that change (Ctrl+Z) and save again.';
+  return detail === null
+    ? `The server refused this board. ${escape}`
+    : `The server refused this board — ${detail}. ${escape}`;
 }
 
 /* ------------------------------------------------------------------ *
@@ -474,6 +499,7 @@ async function runSave(force: boolean): Promise<void> {
           const edited = mutationSeq !== seqAtSend; // ...and was any of that user work?
           lastSaveAt = Date.now();
           hardStoppedBoard = null;
+          rejectedBoard = null;
           useBoardStore.setState({
             // Keep the live document when it moved on: a camera move or a
             // board-link rollup landed on it and the server's echo predates them.
@@ -507,6 +533,16 @@ async function runSave(force: boolean): Promise<void> {
       useBoardStore.setState({ saveState: 'offline', error: null });
     } else if (err instanceof ApiError && err.conflict) {
       useBoardStore.setState({ saveState: 'conflict', error: 'This board changed somewhere else.' });
+    } else if (err instanceof ApiError && err.status === 400) {
+      // The document itself is the problem, so every autosave after this one
+      // repeats it verbatim. Say what is wrong once, and keep saying it in the
+      // status line rather than in a toast per attempt.
+      const message = rejectedMessage(err);
+      useBoardStore.setState({ saveState: 'idle', error: message });
+      if (rejectedBoard !== boardId) {
+        rejectedBoard = boardId;
+        toast(message, 'error');
+      }
     } else {
       const message = describe(err, 'Could not save this board');
       useBoardStore.setState({ saveState: 'idle', error: message });
@@ -562,6 +598,7 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
     clearAutosaveTimers();
     stopPolling();
     hardStoppedBoard = null;
+    rejectedBoard = null;
 
     set({
       boardId: id,

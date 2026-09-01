@@ -14,6 +14,8 @@ import {
   type ColorToken,
   type Id,
   type NoteNode,
+  type ShapeNode,
+  type TextNode,
 } from '@/domain/board';
 import { nowIso } from '@/lib/format';
 import { rankAfterAll, rankBetween } from '@/lib/ranks';
@@ -23,7 +25,9 @@ import {
   makeEdge,
   makeLabel,
   makeNote,
+  makeShape,
   makeStatus,
+  makeText,
 } from '@/state/factories';
 import { gridColumns, gridSlot, layoutOrigin } from '@/io/layout';
 import type { KartaImport, KartaImportCard } from '@/io/schema';
@@ -31,6 +35,8 @@ import type { KartaImport, KartaImportCard } from '@/io/schema';
 export interface ImportSummary {
   cards: number;
   notes: number;
+  texts: number;
+  shapes: number;
   edges: number;
   labelsCreated: string[];
   statusesCreated: string[];
@@ -65,6 +71,8 @@ export function applyImport(
   const summary: ImportSummary = {
     cards: 0,
     notes: 0,
+    texts: 0,
+    shapes: 0,
     edges: 0,
     labelsCreated: [],
     statusesCreated: [],
@@ -127,12 +135,18 @@ export function applyImport(
 
     const cardsIn = input.cards ?? [];
     const notesIn = input.notes ?? [];
+    const textsIn = input.texts ?? [];
+    const shapesIn = input.shapes ?? [];
     const origin = layoutOrigin(d.nodes);
-    // Every card and note takes a slot, positioned or not, so the grid here is
-    // the one the exporter reads backwards (`io/exporter.ts`). Numbering only
-    // the positionless ones would slide everything after a placed card into
-    // its neighbour's slot, stacking the two rectangles on a round trip.
-    const columns = gridColumns(cardsIn.length + notesIn.length);
+    // Every node takes a slot, positioned or not, so the grid here is the one
+    // the exporter reads backwards (`io/exporter.ts`). Numbering only the
+    // positionless ones would slide everything after a placed card into its
+    // neighbour's slot, stacking the two rectangles on a round trip. The order
+    // the slots are handed out in — cards, notes, texts, shapes — is the order
+    // the exporter walks the document.
+    const columns = gridColumns(
+      cardsIn.length + notesIn.length + textsIn.length + shapesIn.length,
+    );
     let slot = 0;
 
     const place = (given: { x: number; y: number } | undefined): { x: number; y: number } => {
@@ -156,9 +170,14 @@ export function applyImport(
       return rank;
     };
 
-    /* ---------------- cards and notes ---------------- */
+    /* ---------------- nodes ---------------- */
 
     const idByKey = new Map<string, Id>();
+    // One namespace for every node list, first claimant wins, so an edge never
+    // lands on whichever list happened to be read last.
+    const claim = (key: string | undefined, id: Id): void => {
+      if (key && !idByKey.has(key)) idByKey.set(key, id);
+    };
     const idsByTitle = new Map<string, Id[]>();
     const remember = (title: string, id: Id): void => {
       const key = title.trim();
@@ -188,7 +207,7 @@ export function applyImport(
       });
       d.nodes.push(node);
       summary.cards += 1;
-      if (card.key && !idByKey.has(card.key)) idByKey.set(card.key, node.id);
+      claim(card.key, node.id);
       remember(node.title, node.id);
     }
 
@@ -201,9 +220,36 @@ export function applyImport(
       });
       d.nodes.push(node);
       summary.notes += 1;
-      // One namespace for cards and notes, first claimant wins, so an edge
-      // never lands on whichever list happened to be read last.
-      if (note.key && !idByKey.has(note.key)) idByKey.set(note.key, node.id);
+      claim(note.key, node.id);
+    }
+
+    for (const text of textsIn) {
+      const node: TextNode = makeText({
+        text: text.text,
+        fontSize: text.fontSize,
+        align: text.align,
+        weight: text.weight,
+        color: text.color,
+        position: place(text.position),
+        userId,
+      });
+      d.nodes.push(node);
+      summary.texts += 1;
+      claim(text.key, node.id);
+    }
+
+    for (const shape of shapesIn) {
+      const node: ShapeNode = makeShape({
+        shape: shape.shape,
+        label: shape.label,
+        fill: shape.fill,
+        stroke: shape.stroke,
+        position: place(shape.position),
+        userId,
+      });
+      d.nodes.push(node);
+      summary.shapes += 1;
+      claim(shape.key, node.id);
     }
 
     /* ---------------- edges ---------------- */

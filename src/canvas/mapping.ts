@@ -17,23 +17,12 @@ export const HANDLE_POSITION: Record<HandleSide, Position> = {
   left: Position.Left,
 };
 
-export function isHandleSide(value: unknown): value is HandleSide {
-  return value === 'top' || value === 'right' || value === 'bottom' || value === 'left';
-}
-
-/** The side an incoming arrow should attach to, given where it came from. */
-export function oppositeSide(side: HandleSide): HandleSide {
-  switch (side) {
-    case 'top':
-      return 'bottom';
-    case 'bottom':
-      return 'top';
-    case 'left':
-      return 'right';
-    default:
-      return 'left';
-  }
-}
+/*
+ * Which side an arrow reads a handle id as, and which side it should answer on,
+ * both live in `canvas/connect.ts` — `sideFromHandleId` and `resolveSides`.
+ * There is no second copy here: the perimeter handle has no side at all, and a
+ * helper that does not know that would quietly get it wrong.
+ */
 
 function markerFor(marker: 'none' | 'arrow' | 'arrowopen', color: string): EdgeMarker | undefined {
   if (marker === 'none') return undefined;

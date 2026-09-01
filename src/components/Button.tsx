@@ -9,20 +9,22 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 /*
- * A button is a 1 px border and a label. No shadow, no gradient, no lift on
- * hover — hover only changes the ink or the border (8.3).
+ * A button is a 1 px border and a label. Every measurement it uses — height,
+ * inline padding, radius, type size — is a step on a scale in `tokens.css`, and
+ * the whole of it lives in the `.karta-btn` block in `styles/index.css`. What is
+ * left here is which variant and which size, because those are the only two
+ * decisions a caller gets to make.
  */
 const VARIANT: Record<ButtonVariant, string> = {
-  primary:
-    'border-[var(--focus)] bg-[var(--focus)] text-[var(--surface-raised)] hover:brightness-110 disabled:hover:brightness-100',
-  default: 'border-line bg-raised text-ink hover:border-line-strong',
-  ghost: 'border-transparent bg-transparent text-ink-muted hover:text-ink',
-  danger: 'border-line bg-raised text-[var(--temper-copper)] hover:border-[var(--temper-copper)]',
+  primary: 'karta-btn--primary',
+  default: 'karta-btn--default',
+  ghost: 'karta-btn--ghost',
+  danger: 'karta-btn--danger',
 };
 
 const SIZE: Record<ButtonSize, string> = {
-  sm: 'h-7 gap-1.5 px-2 text-[13px]',
-  md: 'h-8 gap-2 px-3 text-[14px]',
+  sm: 'karta-btn--sm',
+  md: '',
 };
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -33,7 +35,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
     <button
       ref={ref}
       type={type}
-      className={`inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-[var(--radius)] border transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-50 ${VARIANT[variant]} ${SIZE[size]} ${className}`}
+      className={['karta-btn', VARIANT[variant], SIZE[size], className].filter(Boolean).join(' ')}
       {...rest}
     />
   );

@@ -11,6 +11,10 @@ export const MIN_NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
   image: { w: 96, h: 72 },
   boardLink: { w: 160, h: 88 },
   group: { w: 160, h: 120 },
+  // Free text is bounded by the words in it rather than by a frame, so the
+  // floor is one short line; a shape only has to stay big enough to grab.
+  text: { w: 80, h: 24 },
+  shape: { w: 48, h: 40 },
 };
 
 /** The shape React Flow's `onResizeEnd` reports: the node's final box. */

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { isCardNode, isNoteNode, type BoardDoc } from '@/domain/board';
+import {
+  DEFAULT_TEXT_SIZE,
+  isCardNode,
+  isNoteNode,
+  isShapeNode,
+  isTextNode,
+  type BoardDoc,
+} from '@/domain/board';
 import {
   makeBoard,
   makeBoardLink,
@@ -432,9 +439,7 @@ describe('keys', () => {
       notes: [{ key: 'a', text: 'Note A' }],
       edges: [{ from: 'b', to: 'a' }],
     });
-    expect(
-      result.warnings.some((w) => w.includes('notes[0].key "a" is already used by another card or note')),
-    ).toBe(true);
+    expect(result.warnings.some((w) => w.includes('notes[0].key "a" is already used'))).toBe(true);
 
     const { doc, summary } = applyImport(board(), result.value, 'u1', 'merge');
     const cardA = doc.nodes.filter(isCardNode).find((c) => c.title === 'Card A');
@@ -451,9 +456,7 @@ describe('keys', () => {
       ],
       edges: [{ from: 'b', to: 'a' }],
     });
-    expect(result.warnings.some((w) => w.includes('cards[1].key "a" is used more than once'))).toBe(
-      true,
-    );
+    expect(result.warnings.some((w) => w.includes('cards[1].key "a" is already used'))).toBe(true);
     const { doc } = applyImport(board(), result.value, 'u1', 'merge');
     const first = doc.nodes.filter(isCardNode).find((c) => c.title === 'First');
     expect(doc.edges[0].target).toBe(first?.id);
@@ -470,6 +473,92 @@ describe('labels on a card', () => {
     expect(doc.labels).toHaveLength(1);
     expect(doc.nodes.filter(isCardNode)[0].labelIds).toEqual([doc.labels[0].id]);
     expect(summary.labelsCreated).toEqual(['bug']);
+  });
+});
+
+describe('texts and shapes', () => {
+  it('reads both lists, in full and in their bare forms', () => {
+    const result = validated({
+      texts: [
+        { key: 'h', text: 'Phase one', fontSize: 32, align: 'center', weight: 'bold', color: 'teal' },
+        'Phase two',
+      ],
+      shapes: [{ key: 'd', shape: 'diamond', label: 'Ready?', fill: 'blue' }, 'cloud'],
+    });
+
+    expect(result.value.texts).toEqual([
+      { key: 'h', text: 'Phase one', fontSize: 32, align: 'center', weight: 'bold', color: 'teal' },
+      { text: 'Phase two' },
+    ]);
+    expect(result.value.shapes).toEqual([
+      { key: 'd', shape: 'diamond', label: 'Ready?', fill: 'blue' },
+      { shape: 'cloud' },
+    ]);
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('creates the nodes and lets arrows point at them by key', () => {
+    const result = validated({
+      cards: [{ key: 'c', title: 'Sign-in' }],
+      texts: [{ key: 'h', text: 'Phase one', weight: 'bold' }],
+      shapes: [{ key: 'd', shape: 'diamond', label: 'Ready?' }],
+      edges: [{ from: 'd', to: 'c', semantic: 'depends' }],
+    });
+    const { doc, summary } = applyImport(board(), result.value, 'u1', 'merge');
+
+    expect([summary.texts, summary.shapes, summary.edges]).toEqual([1, 1, 1]);
+
+    const text = doc.nodes.filter(isTextNode)[0];
+    expect(text).toMatchObject({ text: 'Phase one', weight: 'bold', align: 'left' });
+    expect(text.fontSize).toBe(DEFAULT_TEXT_SIZE);
+
+    const shape = doc.nodes.filter(isShapeNode)[0];
+    expect(shape).toMatchObject({ shape: 'diamond', label: 'Ready?', fill: null, stroke: null });
+
+    expect(doc.edges[0].source).toBe(shape.id);
+    expect(doc.edges[0].target).toBe(doc.nodes.filter(isCardNode)[0].id);
+  });
+
+  it('degrades a value it does not understand and fails a missing shape', () => {
+    const loose = validated({
+      texts: [{ text: 'Big', fontSize: 900, align: 'justified' }],
+      shapes: [{ shape: 'octagon' }],
+    });
+    expect(loose.value.texts?.[0]).toEqual({ text: 'Big' });
+    expect(loose.value.shapes?.[0]).toEqual({ shape: 'rectangle' });
+    expect(loose.warnings.some((w) => w.includes('texts[0].fontSize'))).toBe(true);
+    expect(loose.warnings.some((w) => w.includes('texts[0].align "justified"'))).toBe(true);
+    expect(loose.warnings.some((w) => w.includes('shapes[0].shape "octagon"'))).toBe(true);
+
+    const missing = validateImport({ shapes: [{ label: 'nameless' }] });
+    expect(missing.ok).toBe(false);
+    if (missing.ok) return;
+    expect(missing.errors).toContain('shapes[0].shape is required.');
+  });
+
+  it('shares one key namespace with the cards and notes', () => {
+    const result = validated({
+      cards: [
+        { key: 'a', title: 'Card A' },
+        { key: 'b', title: 'Card B' },
+      ],
+      texts: [{ key: 'a', text: 'Text A' }],
+      shapes: [{ key: 'a', shape: 'ellipse' }],
+      edges: [{ from: 'b', to: 'a' }],
+    });
+    expect(result.warnings.some((w) => w.includes('texts[0].key "a" is already used'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('shapes[0].key "a" is already used'))).toBe(true);
+
+    // The card claimed "a" first, so the arrow lands on it and not on the
+    // text or the shape that asked for the same handle.
+    const { doc } = applyImport(board(), result.value, 'u1', 'merge');
+    const cardA = doc.nodes.filter(isCardNode).find((c) => c.title === 'Card A');
+    expect(doc.edges[0].target).toBe(cardA?.id);
+  });
+
+  it('counts a board of nothing but shapes as something to import', () => {
+    expect(validateImport({ shapes: ['diamond'] }).ok).toBe(true);
+    expect(validateImport({ texts: ['A heading'] }).ok).toBe(true);
   });
 });
 
@@ -510,11 +599,20 @@ describe('the whole round trip', () => {
       { key: 'n', text: 'Remember the redirect URI', color: 'straw' },
       { key: 'm', text: '' },
     ],
+    texts: [
+      { key: 'h', text: 'Phase one', fontSize: 32, align: 'center', weight: 'bold', color: 'teal' },
+      { text: '' },
+    ],
+    shapes: [
+      { key: 'd', shape: 'diamond', label: 'Ready?', fill: 'blue', stroke: '#AB12CD' },
+      { shape: 'cloud' },
+    ],
     edges: [
       { from: 'b', to: 'a', semantic: 'depends', label: 'needs' },
       { from: 'a', to: 'n' },
       { from: 'c', to: 'b', semantic: 'blocks' },
       { from: 'm', to: 'c', semantic: 'derives' },
+      { from: 'd', to: 'h' },
     ],
   };
 
@@ -547,7 +645,9 @@ describe('the whole round trip', () => {
 
     expect(summary.cards).toBe(3);
     expect(summary.notes).toBe(2);
-    expect(summary.edges).toBe(4); // the arrow onto the image cannot travel
+    expect(summary.texts).toBe(2);
+    expect(summary.shapes).toBe(2);
+    expect(summary.edges).toBe(5); // the arrow onto the image cannot travel
     expect(summary.warnings).toHaveLength(0);
 
     expect(doc.title).toBe('Karta');
@@ -580,6 +680,25 @@ describe('the whole round trip', () => {
       'Remember the redirect URI',
       '',
     ]);
+
+    const heading = doc.nodes.filter(isTextNode)[0];
+    expect(heading).toMatchObject({
+      text: 'Phase one',
+      fontSize: 32,
+      align: 'center',
+      weight: 'bold',
+      color: 'teal',
+    });
+    const diamond = doc.nodes.filter(isShapeNode)[0];
+    expect(diamond).toMatchObject({
+      shape: 'diamond',
+      label: 'Ready?',
+      fill: 'blue',
+      stroke: '#ab12cd',
+    });
+    expect(doc.nodes.filter(isShapeNode)[1]).toMatchObject({ shape: 'cloud', fill: null });
+    expect(doc.edges.find((e) => e.source === diamond.id)?.target).toBe(heading.id);
+
     expect(new Set(doc.edges.map((e) => e.semantic))).toEqual(
       new Set(['depends', 'relates', 'blocks', 'derives']),
     );
@@ -599,7 +718,9 @@ describe('the whole round trip', () => {
     const { doc, summary } = applyImport(board(), result.value, 'u1', 'replace');
     expect(summary.cards).toBe(3);
     expect(summary.notes).toBe(2);
-    expect(summary.edges).toBe(4);
+    expect(summary.texts).toBe(2);
+    expect(summary.shapes).toBe(2);
+    expect(summary.edges).toBe(5);
     expect(toPortable(doc)).toEqual(toPortable(source));
   });
 });

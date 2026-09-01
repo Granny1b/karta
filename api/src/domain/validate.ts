@@ -22,13 +22,26 @@ import type {
   MediaContentType,
 } from '../../../src/domain/board.js';
 import {
+  MAX_CARD_BODY,
+  MAX_CHECKLIST_TEXT,
+  MAX_EDGE_LABEL,
+  MAX_ICON,
   MAX_MEDIA_BYTES,
-  SCHEMA_VERSION,
+  MAX_NAME,
+  MAX_NODE_TEXT,
+  MAX_SHAPE_LABEL,
+  MAX_TEXT_SIZE,
+  MAX_TITLE,
+  MIN_TEXT_SIZE,
+  SHAPE_KINDS,
   SIZE_HARD_STOP_BYTES,
   SIZE_WARN_BYTES,
   SIZE_WARN_NODES,
+  TEXT_ALIGNS,
+  TEXT_WEIGHTS,
 } from '../../../src/domain/board.js';
 import { BadRequestError } from './errors.js';
+import { upgradeToCurrent } from './migrate.js';
 import type {
   CreateBoardRequest,
   MediaCommitRequest,
@@ -79,6 +92,9 @@ const HANDLES = ['top', 'right', 'bottom', 'left'] as const;
 const SEMANTICS = ['relates', 'depends', 'blocks', 'derives'] as const;
 const ROUTINGS = ['bezier', 'smoothstep', 'straight'] as const;
 const FITS = ['contain', 'cover'] as const;
+
+/** The node kinds this build understands, for the error a bad `kind` produces. */
+const NODE_KINDS = ['card', 'image', 'note', 'boardLink', 'group', 'text', 'shape'] as const;
 
 export const MEDIA_CONTENT_TYPES: readonly MediaContentType[] = [
   'image/webp',
@@ -228,28 +244,50 @@ export type BoardDocValidation =
   | { ok: true; errors: string[]; doc: BoardDoc }
   | { ok: false; errors: string[]; doc: null };
 
-const MAX_TITLE = 300;
-const MAX_NAME = 120;
-const MAX_LABEL = 300;
-const MAX_CHECKLIST_TEXT = 2000;
+/*
+ * Every field length this file judges comes from `src/domain/board.ts`, the
+ * one contract both halves compile against — see the note above the limits
+ * there. `MAX_RANK` stays local because nothing on the client writes a rank:
+ * they come out of `fractional-indexing`, which cannot produce a long one.
+ */
 const MAX_RANK = 64;
 
-export function validateBoardDoc(raw: unknown): BoardDocValidation {
+/**
+ * Check a document a client posted, and hand back the version this build
+ * stores.
+ *
+ * The write path is exactly as tolerant as the read path: the input is walked
+ * forward by the same migration steps `migrate` uses, and only then judged.
+ * Demanding the current version outright looks stricter and is in fact a trap
+ * — a client that recovers a document written by the previous deploy (its
+ * write-ahead log survives a release) would have every save it ever makes
+ * refused, with no way out from inside the app. Anything this API can read, it
+ * can be handed back.
+ */
+export function validateBoardDoc(input: unknown): BoardDocValidation {
   const e = new ErrorBag();
 
-  if (!isRecord(raw)) {
+  if (!isRecord(input)) {
     return { ok: false, errors: ['doc: expected a JSON object'], doc: null };
   }
 
-  if (raw['schemaVersion'] !== SCHEMA_VERSION) {
-    e.add('doc.schemaVersion', `expected ${SCHEMA_VERSION}`);
+  let raw: Record<string, unknown>;
+  try {
+    raw = upgradeToCurrent(input);
+  } catch (err) {
+    // A version this build cannot read. Migration steps are total by contract
+    // (see `migrate.ts`), so anything else that lands here is a bug in one —
+    // and it degrades to "this document cannot be read", never to a 500.
+    const reason = err instanceof Error ? err.message : 'unreadable schemaVersion';
+    return { ok: false, errors: [`doc.schemaVersion: ${reason}`], doc: null };
   }
+
   if (!isUlid(raw['id'])) e.add('doc.id', 'expected a ULID');
   if (raw['parentBoardId'] !== null && !isUlid(raw['parentBoardId'])) {
     e.add('doc.parentBoardId', 'expected a ULID or null');
   }
   checkString(e, 'doc.title', raw['title'], MAX_TITLE);
-  checkNullableString(e, 'doc.icon', raw['icon'], 64);
+  checkNullableString(e, 'doc.icon', raw['icon'], MAX_ICON);
   checkIso(e, 'doc.createdAt', raw['createdAt']);
   checkIso(e, 'doc.updatedAt', raw['updatedAt']);
   checkNullableIso(e, 'doc.deletedAt', raw['deletedAt']);
@@ -405,7 +443,7 @@ function checkNodes(
         checkImage(e, p, entry);
         break;
       case 'note':
-        checkString(e, `${p}.text`, entry['text'], 20000);
+        checkString(e, `${p}.text`, entry['text'], MAX_NODE_TEXT);
         break;
       case 'boardLink':
         checkBoardLink(e, p, entry);
@@ -414,8 +452,14 @@ function checkNodes(
         checkString(e, `${p}.title`, entry['title'], MAX_TITLE);
         checkNumber(e, `${p}.padding`, entry['padding']);
         break;
+      case 'text':
+        checkText(e, p, entry);
+        break;
+      case 'shape':
+        checkShape(e, p, entry);
+        break;
       default:
-        e.add(`${p}.kind`, 'expected one of card, image, note, boardLink, group');
+        e.add(`${p}.kind`, `expected one of ${NODE_KINDS.join(', ')}`);
     }
   });
 
@@ -430,7 +474,7 @@ function checkCard(
   labelIds: Set<Id>,
 ): void {
   checkString(e, `${p}.title`, n['title'], MAX_TITLE);
-  checkString(e, `${p}.body`, n['body'], 200000);
+  checkString(e, `${p}.body`, n['body'], MAX_CARD_BODY);
   checkString(e, `${p}.rank`, n['rank'], MAX_RANK);
   checkBool(e, `${p}.collapsed`, n['collapsed']);
   checkNullableIso(e, `${p}.dueDate`, n['dueDate']);
@@ -478,8 +522,34 @@ function checkCard(
 function checkImage(e: ErrorBag, p: string, n: Record<string, unknown>): void {
   checkLocalId(e, `${p}.mediaId`, n['mediaId']);
   checkVec(e, `${p}.naturalSize`, n['naturalSize'], 'w', 'h');
-  checkNullableString(e, `${p}.caption`, n['caption'], MAX_LABEL);
+  // A caption annotates a picture the way a label annotates an arrow, and is
+  // held to the same length by the same number.
+  checkNullableString(e, `${p}.caption`, n['caption'], MAX_EDGE_LABEL);
   checkEnum(e, `${p}.fit`, n['fit'], FITS);
+}
+
+function checkText(e: ErrorBag, p: string, n: Record<string, unknown>): void {
+  checkString(e, `${p}.text`, n['text'], MAX_NODE_TEXT);
+  // A font size is geometry, not decoration: NaN or 10^6 is a node that cannot
+  // be drawn or cannot be escaped, and both survive a JSON round trip.
+  const size = n['fontSize'];
+  if (!isFinite_(size) || size < MIN_TEXT_SIZE || size > MAX_TEXT_SIZE) {
+    e.add(`${p}.fontSize`, `expected a number between ${MIN_TEXT_SIZE} and ${MAX_TEXT_SIZE}`);
+  }
+  checkEnum(e, `${p}.align`, n['align'], TEXT_ALIGNS);
+  checkEnum(e, `${p}.weight`, n['weight'], TEXT_WEIGHTS);
+}
+
+function checkShape(e: ErrorBag, p: string, n: Record<string, unknown>): void {
+  checkEnum(e, `${p}.shape`, n['shape'], SHAPE_KINDS);
+  // The same number the editor caps its field at, read from the one contract —
+  // a label the client will happily type and the server refuses is a board
+  // that can never be saved again.
+  checkString(e, `${p}.label`, n['label'], MAX_SHAPE_LABEL);
+  // Same rule as every other colour field, through the same helper: a hex the
+  // client accepts and the server refuses is a board that can never be saved.
+  checkColor(e, `${p}.fill`, n['fill']);
+  checkColor(e, `${p}.stroke`, n['stroke']);
 }
 
 function checkBoardLink(e: ErrorBag, p: string, n: Record<string, unknown>): void {
@@ -522,7 +592,7 @@ function checkEdges(e: ErrorBag, v: unknown, nodeIds: Set<Id>): void {
     checkEnum(e, `${p}.targetHandle`, entry['targetHandle'], HANDLES);
     checkEnum(e, `${p}.semantic`, entry['semantic'], SEMANTICS);
     checkEnum(e, `${p}.routing`, entry['routing'], ROUTINGS);
-    checkNullableString(e, `${p}.label`, entry['label'], MAX_LABEL);
+    checkNullableString(e, `${p}.label`, entry['label'], MAX_EDGE_LABEL);
     checkColor(e, `${p}.color`, entry['color']);
     checkIso(e, `${p}.updatedAt`, entry['updatedAt']);
   });

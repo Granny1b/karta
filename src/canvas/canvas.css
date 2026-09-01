@@ -10,13 +10,53 @@
   height: 100%;
   background: var(--surface-canvas);
   outline: none;
+
+  /*
+   * One stacking context for the whole board. The canvas stacks a dozen layers
+   * of its own — nodes, edge labels, the arrow toolbar, the palette, the
+   * toolbar — in the thousands, and without this they would be measured against
+   * the sidebar, the editor panel and the modal scrim, which are counted in
+   * tens. Isolating it means the board is one layer from the outside and can
+   * order itself however it likes on the inside.
+   */
+  isolation: isolate;
+
+  /*
+   * The canvas names of the two scales in `tokens.css`. They are aliases, not a
+   * second scale: radius climbs with the size of the surface — an inline chip,
+   * a control, a node, a frame — and type is the sizes section 8.2 fixes.
+   */
+  --karta-r-chip: var(--radius-xs);
+  --karta-r-control: var(--radius-sm);
+  --karta-r-surface: var(--radius-md);
+  --karta-r-frame: var(--radius-lg);
+
+  --karta-t-meta: var(--text-meta);
+  --karta-t-control: var(--text-control);
+  --karta-t-secondary: var(--text-caption);
+  --karta-t-body: var(--text-body);
+
+  /* An overlay floats; nothing that sits on the canvas at rest does (8.3). */
+  --karta-overlay-shadow: var(--shadow-overlay);
+
+  /*
+   * The edge every piece of floating furniture stands on: the palette, the
+   * toolbar, the status dock and React Flow's own panels. Named once, because
+   * four corners that each pick their own inset is the loudest thing on a
+   * screen — and React Flow's panels arrive with a 15 px margin of their own,
+   * which is an inset that answers to nothing here.
+   */
+  --karta-inset: var(--space-3);
+
+  /* The line the licence credit occupies, and the step the controls stand on. */
+  --karta-credit-h: var(--space-5);
 }
 
 .karta-canvas .react-flow {
-  /* Neutralise React Flow's own node theming — every surface here is ours. */
+  /* Neutralise React Flow's own node theming — every surface here is ours.
+     The marquee, the wires and the zoom controls are answered once, for the
+     whole library, in `styles/canvas-chrome.css`. */
   --xy-background-color: var(--surface-canvas);
-  --xy-selection-background-color: color-mix(in srgb, var(--focus) 10%, transparent);
-  --xy-selection-border: 1px solid var(--focus);
   --xy-node-border: none;
   --xy-node-border-radius: 0;
   --xy-node-background-color: transparent;
@@ -53,32 +93,79 @@
   z-index: 2000;
 }
 
+/* The field fading out below zoom 0.4 (7.3). A whole-surface crossing, so it
+   takes the slower of the two speeds; a control answering a click takes the
+   faster one. There is no third number. */
 .karta-grid {
-  transition: opacity 120ms linear;
+  transition: opacity var(--dur-base) linear;
 }
 
-/* --- nodes ------------------------------------------------------------- */
+/*
+ * The infinite field is not a button. React Flow marks the pane `selection`
+ * whenever a drag would draw a marquee, which is always here, and styles that
+ * with `cursor: pointer` — which promises a click target that does not exist.
+ */
+.karta-canvas .react-flow__pane,
+.karta-canvas .react-flow__pane.selection {
+  cursor: default;
+}
+
+/*
+ * While an arrow is in the air the whole field says so, not just the node it
+ * came from. The class is put on by `onConnectStart` and taken off by
+ * `onConnectEnd`, so the gesture costs one attribute write rather than a
+ * re-render of the surface on every frame of it.
+ */
+.karta-canvas.is-connecting .react-flow__pane,
+.karta-canvas.is-connecting .react-flow__pane.selection {
+  cursor: crosshair;
+}
+
+/* --- selection ---------------------------------------------------------- */
+
+/*
+ * What is left once the drag ends — the box around the selected set. It is a
+ * statement about the past, not a live gesture, so it takes the marquee's own
+ * line (`--select-line`) and none of its fill: one idea drawn at two moments,
+ * rather than two edges that nearly agree.
+ */
+.karta-canvas .react-flow__nodesselection-rect {
+  border: 1px dashed var(--select-line);
+  border-radius: var(--karta-r-surface);
+  background: transparent;
+}
+
+/* --- nodes -------------------------------------------------------------- */
 
 .karta-node {
   position: relative;
   width: 100%;
   height: 100%;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  border: var(--hairline);
+  border-radius: var(--karta-r-surface);
   background: var(--surface-raised);
   color: var(--ink);
   /* No shadow at rest — one appears while dragging and nowhere else (8.3). */
   box-shadow: none;
 }
 
+/*
+ * Selection is one unambiguous ring, offset off the border so the two do not
+ * merge into a single muddy two-pixel edge.
+ */
 .karta-node.is-selected {
   border-color: var(--focus);
   outline: 1px solid var(--focus);
+  outline-offset: 1px;
 }
 
+/* The one shadow a node in the air casts (8.3), and never its value: the token
+   is the only place that offset, blur and opacity are written, and it is the
+   only one with a dark-mode depth. Anything that lifts and has no box to cast
+   from — a shape silhouette — reads the same token as a `drop-shadow`. */
 .karta-node.is-dragging {
-  box-shadow: 0 10px 24px rgb(0 0 0 / 18%);
+  box-shadow: var(--shadow-drag);
 }
 
 .karta-node.is-locked {
@@ -95,11 +182,17 @@
   width: 4px;
 }
 
+/*
+ * The most-repeated string on the board, so it is also the one that must not
+ * move: `--font-condensed` carries the metric-matched fallback face declared in
+ * `styles/index.css`, and a stack written out here would miss it and reflow
+ * every title on the board the moment IBM Plex lands.
+ */
 .karta-card-title {
-  font-family: 'IBM Plex Sans Condensed', 'IBM Plex Sans', system-ui, sans-serif;
+  font-family: var(--font-condensed);
   font-weight: 600;
-  font-size: 15px;
-  line-height: 1.2;
+  font-size: var(--karta-t-body);
+  line-height: var(--leading-tight);
   color: var(--ink);
   overflow-wrap: anywhere;
 }
@@ -107,13 +200,14 @@
 .karta-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   max-width: 100%;
-  padding: 1px 5px;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  font-size: 11px;
-  line-height: 1.4;
+  height: 18px;
+  padding: 0 6px;
+  border: var(--hairline);
+  border-radius: var(--karta-r-chip);
+  font-size: var(--karta-t-meta);
+  line-height: var(--leading-flat);
   color: var(--ink-muted);
 }
 
@@ -121,14 +215,19 @@
   width: 6px;
   height: 6px;
   flex: none;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
+/* Same box as a chip, so a row of metadata sits on one baseline. */
 .karta-due {
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 11px;
-  line-height: 1.4;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--karta-r-chip);
+  font-size: var(--karta-t-meta);
+  line-height: var(--leading-flat);
   background: var(--surface-sunken);
   color: var(--ink-muted);
 }
@@ -150,12 +249,13 @@
   width: 100%;
   height: 100%;
   border: 1px solid var(--line-strong);
-  border-radius: 10px;
+  border-radius: var(--karta-r-frame);
   /* Only the label takes the pointer, so a drag inside a frame is a marquee. */
   pointer-events: none;
 }
 
 .karta-frame.is-selected {
+  border-color: var(--focus);
   outline: 1px solid var(--focus);
   outline-offset: 1px;
 }
@@ -168,13 +268,14 @@
   align-items: center;
   gap: 6px;
   max-width: calc(100% - 20px);
-  padding: 1px 8px;
+  height: 20px;
+  padding: 0 8px;
   border: 1px solid var(--line-strong);
-  border-radius: 0 0 5px 5px;
+  border-radius: 0 0 var(--karta-r-control) var(--karta-r-control);
   background: var(--surface-raised);
-  font-family: 'IBM Plex Sans Condensed', 'IBM Plex Sans', system-ui, sans-serif;
+  font-family: var(--font-condensed);
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--karta-t-control);
   color: var(--ink-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -191,59 +292,19 @@
   width: 7px;
   height: 7px;
   flex: none;
-  border-radius: 999px;
-}
-
-/* --- handles ------------------------------------------------------------ */
-
-.karta-canvas .react-flow__handle {
-  width: 9px;
-  height: 9px;
-  min-width: 0;
-  min-height: 0;
-  border: 1.5px solid var(--line-strong);
-  border-radius: 999px;
-  background: var(--surface-raised);
-  opacity: 0;
-  transition: opacity 100ms linear;
-}
-
-.karta-canvas .react-flow__handle:hover {
-  border-color: var(--focus);
-  background: var(--focus);
-}
-
-/* Handles stay mounted at every zoom — edge anchors are measured from them —
-   but they are only offered where they can actually be hit. */
-.karta-lod-full:hover .react-flow__handle,
-.karta-lod-compact:hover .react-flow__handle,
-.react-flow__node.selected .karta-lod-full .react-flow__handle,
-.react-flow__node.selected .karta-lod-compact .react-flow__handle {
-  opacity: 1;
-}
-
-.karta-canvas .karta-lod-title .react-flow__handle,
-.karta-canvas .karta-lod-block .react-flow__handle {
-  pointer-events: none;
-}
-
-.karta-canvas .react-flow__handle-top {
-  top: -5px;
-}
-
-.karta-canvas .react-flow__handle-bottom {
-  bottom: -5px;
-}
-
-.karta-canvas .react-flow__handle-left {
-  left: -5px;
-}
-
-.karta-canvas .react-flow__handle-right {
-  right: -5px;
+  border-radius: var(--radius-full);
 }
 
 /* --- resize handles ----------------------------------------------------- */
+
+/*
+ * Connection handles are deliberately absent from this file. Every one of them
+ * is drawn by `nodes/NodeHandles.tsx` and styled by `canvas/connect.css` — four
+ * side stubs and one perimeter — and a second, weaker definition of the same
+ * thing would only ever be the one that leaked through where the first forgot
+ * to say something. What follows is the resize affordance, which is not a
+ * connection handle at all.
+ */
 
 /* A frame takes no pointer events, so its handles have to ask for them back. */
 .karta-canvas .react-flow__resize-control {
@@ -254,7 +315,7 @@
   width: 8px;
   height: 8px;
   border: 1px solid var(--focus);
-  border-radius: 2px;
+  border-radius: var(--karta-r-chip);
   background: var(--surface-raised);
 }
 
@@ -272,12 +333,12 @@
 
 .karta-edge-label {
   position: absolute;
-  padding: 1px 6px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  padding: 2px 6px;
+  border: var(--hairline);
+  border-radius: var(--karta-r-control);
   background: var(--surface-raised);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--karta-t-meta);
+  line-height: 1.4;
   color: var(--ink);
   white-space: nowrap;
   pointer-events: all;
@@ -290,30 +351,30 @@
 
 .karta-edge-toolbar,
 .karta-connect-menu {
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  border: var(--hairline);
+  border-radius: var(--karta-r-surface);
   background: var(--surface-raised);
-  box-shadow: 0 8px 20px rgb(0 0 0 / 14%);
+  box-shadow: var(--karta-overlay-shadow);
 }
 
+/* The box only. Its measurements are set once, in `connect.css`, beside the
+   rows it has to hold. */
 .karta-edge-toolbar {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  width: 252px;
-  padding: 6px;
 }
 
 /* --- small controls ----------------------------------------------------- */
 
 .karta-tool-btn {
   flex: 1 1 auto;
-  padding: 2px 6px;
+  height: 22px;
+  padding: 0 8px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--karta-r-control);
   background: var(--surface-sunken);
-  font-size: 11px;
-  line-height: 1.6;
+  font-size: var(--karta-t-meta);
+  line-height: var(--leading-flat);
   color: var(--ink-muted);
   cursor: pointer;
 }
@@ -334,7 +395,7 @@
   align-items: center;
   justify-content: center;
   width: 24px;
-  padding: 3px 0;
+  height: 22px;
 }
 
 .karta-danger:hover {
@@ -342,10 +403,10 @@
 }
 
 .karta-swatch {
-  width: 13px;
-  height: 13px;
-  border: 1px solid var(--line);
-  border-radius: 3px;
+  width: 14px;
+  height: 14px;
+  border: var(--hairline);
+  border-radius: var(--karta-r-chip);
   cursor: pointer;
 }
 
@@ -357,14 +418,17 @@
 .karta-input {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 2px 6px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  height: 22px;
+  padding: 0 6px;
+  border: var(--hairline);
+  border-radius: var(--karta-r-control);
   background: var(--surface-raised);
-  font-size: 12px;
+  font-size: var(--karta-t-control);
   color: var(--ink);
 }
 
+.karta-tool-btn:focus-visible,
+.karta-swatch:focus-visible,
 .karta-input:focus {
   outline: 1px solid var(--focus);
   outline-offset: -1px;
@@ -374,71 +438,93 @@
 
 .karta-connect-menu {
   position: absolute;
-  z-index: 20;
+  /* Over the palette and the toolbar, which stand at 2100: a menu is the thing
+     that was just asked for, and it opens wherever the pointer happened to be. */
+  z-index: 2200;
   display: flex;
-  min-width: 172px;
   flex-direction: column;
-  padding: 4px;
 }
 
-.karta-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border-radius: 4px;
-  background: transparent;
-  font-size: 13px;
+/*
+ * Its heading, in the palette's own voice: same family, same weight, same size,
+ * because this is the palette's question asked somewhere else. The rows below
+ * it are the palette's rows, so nothing here describes them.
+ */
+.karta-menu-title {
+  margin: 0 0 var(--space-2);
+  padding: 0 var(--space-2) var(--space-2);
+  border-bottom: var(--hairline);
+  font-family: var(--font-condensed);
+  font-size: var(--karta-t-secondary);
+  font-weight: 600;
+  line-height: var(--leading-tight);
   color: var(--ink);
-  text-align: left;
-  cursor: pointer;
 }
 
-.karta-menu-item:hover,
-.karta-menu-item:focus-visible {
-  background: var(--surface-sunken);
-  outline: none;
-}
-
-.karta-empty {
+/*
+ * One dock in the bottom-left corner, so the status lines stack on a shared
+ * edge instead of each choosing its own inset.
+ */
+.karta-dock {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 14px;
-  color: var(--ink-muted);
+  bottom: var(--karta-inset);
+  left: var(--karta-inset);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
   pointer-events: none;
 }
 
-.karta-uploading {
-  position: absolute;
-  bottom: 16px;
-  left: 16px;
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+.karta-dock-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border: var(--hairline);
+  border-radius: var(--karta-r-control);
   background: var(--surface-raised);
-  font-size: 12px;
+  font-size: var(--karta-t-control);
+  line-height: var(--leading-flat);
   color: var(--ink-muted);
 }
 
 /* --- react flow chrome -------------------------------------------------- */
 
+/*
+ * The zoom controls and the licence credit are both React Flow panels, and a
+ * panel arrives with `margin: 15px` of the library's own — so an inset written
+ * here lands on top of it and the corner sits 27 px in while the dock, the
+ * palette and the toolbar sit on 12. The margin goes; the inset is stated once
+ * as `--karta-inset` and both panels read it, one above the other in a single
+ * column on one right edge.
+ */
 .karta-canvas .react-flow__controls {
+  margin: 0;
+  right: var(--karta-inset);
+  bottom: calc(var(--karta-inset) + var(--karta-credit-h));
   box-shadow: none;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  border: var(--hairline);
+  border-radius: var(--karta-r-control);
   overflow: hidden;
   background: var(--surface-raised);
 }
 
 .karta-canvas .react-flow__controls-button {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: none;
-  border-bottom: 1px solid var(--line);
+  border-bottom: var(--hairline);
   background: var(--surface-raised);
   fill: var(--ink-muted);
+}
+
+.karta-canvas .react-flow__controls-button svg {
+  width: 11px;
+  height: 11px;
+  max-width: none;
+  max-height: none;
 }
 
 .karta-canvas .react-flow__controls-button:last-child {
@@ -450,9 +536,25 @@
   fill: var(--ink);
 }
 
+.karta-canvas .react-flow__controls-button:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/*
+ * The licence credit. It is not this product's chrome, so it is the quietest
+ * thing on the board — no ground, muted ink — but it stands on the same edge as
+ * everything else, and its own padding is dropped so its right edge lands on the
+ * inset rather than four pixels inside it.
+ */
 .karta-canvas .react-flow__attribution {
+  margin: 0;
+  right: var(--karta-inset);
+  bottom: var(--karta-inset);
+  padding: 0;
   background: transparent;
-  font-size: 10px;
+  font-size: var(--karta-t-meta);
+  line-height: var(--karta-credit-h);
 }
 
 .karta-canvas .react-flow__attribution a {

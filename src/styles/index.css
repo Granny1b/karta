@@ -1,5 +1,32 @@
 @import './tokens.css';
 
+/*
+ * Metric-compatible fallbacks. The webfonts are loaded with `display=swap`, so
+ * the first paint is system text and the second is IBM Plex — and if the two
+ * disagree about line height, every card on the board jumps when the font
+ * lands. These faces alias whatever grotesque the machine has and override its
+ * vertical metrics with Plex's own (1000 upem, ascender 1025, descender −275,
+ * no line gap), so the swap changes the glyphs and nothing else.
+ */
+@font-face {
+  font-family: 'Plex Sans Fallback';
+  src: local('Arial'), local('Helvetica Neue'), local('Liberation Sans'), local('Arimo');
+  size-adjust: 105%;
+  ascent-override: 102.5%;
+  descent-override: 27.5%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Plex Condensed Fallback';
+  src: local('Arial Narrow'), local('Liberation Sans Narrow'), local('Roboto Condensed'),
+    local('Arial'), local('Helvetica Neue');
+  size-adjust: 100%;
+  ascent-override: 102.5%;
+  descent-override: 27.5%;
+  line-gap-override: 0%;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -25,9 +52,9 @@
     margin: 0;
     background: var(--surface-canvas);
     color: var(--ink);
-    font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
-    font-size: 15px;
-    line-height: 1.5;
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--leading-body);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overscroll-behavior: none;
@@ -36,9 +63,10 @@
   h1,
   h2,
   h3 {
-    font-family: 'IBM Plex Sans Condensed', 'IBM Plex Sans', system-ui, sans-serif;
+    font-family: var(--font-condensed);
     font-weight: 600;
     font-size: inherit;
+    line-height: var(--leading-tight);
     margin: 0;
   }
 
@@ -46,18 +74,21 @@
   kbd,
   samp,
   pre {
-    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+    font-family: var(--font-mono);
   }
 
-  /* One focus ring, everywhere, and only for keyboard users. */
+  /*
+   * One focus ring, everywhere, and only for keyboard users. It does not set a
+   * radius: an outline already follows the element's own corners, and forcing
+   * one squares off every rounded control the moment it is focused.
+   */
   :focus {
     outline: none;
   }
 
   :focus-visible {
-    outline: 2px solid var(--focus);
-    outline-offset: 2px;
-    border-radius: 2px;
+    outline: var(--focus-ring-w) solid var(--focus);
+    outline-offset: var(--focus-ring-offset);
   }
 
   ::selection {
@@ -100,7 +131,7 @@
   ::-webkit-scrollbar-thumb {
     background-color: var(--line-strong);
     border: 3px solid transparent;
-    border-radius: 999px;
+    border-radius: var(--radius-full);
     background-clip: content-box;
   }
 
@@ -114,18 +145,437 @@
   }
 }
 
+/*
+ * The shared primitives in `src/components`. They live here rather than in a
+ * string of Tailwind classes because every number in them belongs to a scale in
+ * `tokens.css`, and a scale that has to be retyped at each call site is not a
+ * scale. Anything a caller passes as `className` is a Tailwind utility, which
+ * lands in a later layer and still wins.
+ */
 @layer components {
+  /* --- button ----------------------------------------------------------- */
+
+  /*
+   * A button is a 1 px border and a label. No shadow, no gradient, no lift on
+   * hover — hover moves the ground under the label by one step and nothing
+   * else (8.3). The border reads `--line-control` rather than `--line`: the
+   * edge of something you can press has to be visible, and a 1.5:1 hairline
+   * is not.
+   */
+  .karta-btn {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    height: var(--control-h-md);
+    padding-inline: var(--space-3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-ui);
+    line-height: var(--leading-flat);
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-fast) linear,
+      border-color var(--dur-fast) linear,
+      color var(--dur-fast) linear;
+  }
+
+  .karta-btn--sm {
+    height: var(--control-h-sm);
+    padding-inline: var(--space-2);
+    font-size: var(--text-caption);
+  }
+
+  .karta-btn--default {
+    border-color: var(--line-control);
+    background: var(--surface-raised);
+    color: var(--ink);
+  }
+
+  .karta-btn--default:hover:not(:disabled) {
+    background: var(--surface-hover);
+  }
+
+  .karta-btn--default:active:not(:disabled) {
+    background: var(--surface-active);
+  }
+
+  /*
+   * Mixing towards `--ink` rather than towards black: on the light theme the
+   * ink is near-black so the fill darkens, on the dark theme it is near-white
+   * so the same declaration lightens. One rule, correct on both grounds.
+   */
+  .karta-btn--primary {
+    border-color: var(--focus);
+    background: var(--focus);
+    color: var(--surface-raised);
+  }
+
+  .karta-btn--primary:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--focus) 86%, var(--ink));
+    background: color-mix(in srgb, var(--focus) 86%, var(--ink));
+  }
+
+  .karta-btn--primary:active:not(:disabled) {
+    border-color: color-mix(in srgb, var(--focus) 74%, var(--ink));
+    background: color-mix(in srgb, var(--focus) 74%, var(--ink));
+  }
+
+  .karta-btn--ghost {
+    border-color: transparent;
+    background: transparent;
+    color: var(--ink-muted);
+  }
+
+  .karta-btn--ghost:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--ink);
+  }
+
+  .karta-btn--ghost:active:not(:disabled) {
+    background: var(--surface-active);
+  }
+
+  .karta-btn--danger {
+    border-color: var(--line-control);
+    background: var(--surface-raised);
+    color: var(--danger);
+  }
+
+  .karta-btn--danger:hover:not(:disabled) {
+    border-color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 10%, var(--surface-raised));
+  }
+
+  .karta-btn--danger:active:not(:disabled) {
+    background: color-mix(in srgb, var(--danger) 18%, var(--surface-raised));
+  }
+
+  .karta-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  /* --- icon button ------------------------------------------------------- */
+
+  /*
+   * Square, so a row of them sits on one rhythm, and never smaller than 28 px
+   * — below that the icon is a target you have to aim at rather than press.
+   */
+  .karta-icon-btn {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--control-h-md);
+    height: var(--control-h-md);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--ink-muted);
+    cursor: pointer;
+    transition:
+      background-color var(--dur-fast) linear,
+      border-color var(--dur-fast) linear,
+      color var(--dur-fast) linear;
+  }
+
+  .karta-icon-btn--sm {
+    width: var(--control-h-sm);
+    height: var(--control-h-sm);
+  }
+
+  .karta-icon-btn:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--ink);
+  }
+
+  .karta-icon-btn:active:not(:disabled) {
+    background: var(--surface-active);
+  }
+
+  /*
+   * On is a filled well with a visible edge, not a slightly different grey.
+   * Pressed state has to survive being looked at from a metre away.
+   */
+  .karta-icon-btn[aria-pressed='true'] {
+    border-color: var(--line-control);
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+
+  .karta-icon-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  /* --- tooltip ----------------------------------------------------------- */
+
+  .karta-tip {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .karta-tip-bubble {
+    position: absolute;
+    left: 50%;
+    z-index: 60;
+    width: max-content;
+    max-width: 30ch;
+    padding: var(--space-1) var(--space-2);
+    border: var(--hairline);
+    border-radius: var(--radius-sm);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-overlay);
+    color: var(--ink);
+    font-size: var(--text-control);
+    line-height: var(--leading-snug);
+    transform: translateX(-50%);
+    pointer-events: none;
+    visibility: hidden;
+    transition: visibility 0s linear 0s;
+  }
+
+  .karta-tip-bubble[data-side='bottom'] {
+    top: 100%;
+    margin-top: var(--space-1);
+  }
+
+  .karta-tip-bubble[data-side='top'] {
+    bottom: 100%;
+    margin-bottom: var(--space-1);
+  }
+
+  /*
+   * The pointer waits a beat so that crossing a toolbar does not set off a
+   * string of them; the keyboard does not wait at all, because a hint nobody
+   * driving with Tab can reach is not a hint. `:focus-visible` rather than
+   * `:focus-within`, so clicking a button does not also explain it.
+   */
+  .karta-tip:hover > .karta-tip-bubble {
+    visibility: visible;
+    transition-delay: 320ms;
+  }
+
+  .karta-tip:has(:focus-visible) > .karta-tip-bubble {
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  /* --- modal ------------------------------------------------------------- */
+
+  .karta-modal-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: var(--space-4);
+    background: var(--scrim);
+  }
+
+  .karta-modal {
+    display: flex;
+    width: 100%;
+    max-height: min(86vh, 760px);
+    flex-direction: column;
+    border: var(--hairline);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-overlay);
+    color: var(--ink);
+    outline: none;
+  }
+
+  .karta-modal[data-width='sm'] {
+    max-width: 420px;
+  }
+
+  .karta-modal[data-width='md'] {
+    max-width: 560px;
+  }
+
+  .karta-modal[data-width='lg'] {
+    max-width: 800px;
+  }
+
+  /*
+   * The right inset is one step tighter than the left: the close button carries
+   * its own padding, and matching the raw numbers would leave the icon looking
+   * further from the edge than the title is.
+   */
+  .karta-modal-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+    border-bottom: var(--hairline);
+  }
+
+  .karta-modal-title {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    font-family: var(--font-condensed);
+    font-size: var(--text-title);
+    font-weight: 600;
+    line-height: var(--leading-tight);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .karta-modal-body {
+    min-height: 0;
+    flex: 1;
+    padding: var(--space-4);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .karta-modal-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border-top: var(--hairline);
+  }
+
+  /* --- toasts ------------------------------------------------------------ */
+
+  /*
+   * Bottom centre, above the canvas toolbar. The three other corners are spoken
+   * for — the palette top-left, the status dock bottom-left, the zoom controls
+   * bottom-right — and a stack anchored to any of them lands on top of the
+   * thing it is meant to be out of the way of. The offset clears the toolbar:
+   * its own 12 px inset, the height it stands, and a step of air above it.
+   */
+  .karta-toast-stack {
+    position: fixed;
+    bottom: calc(var(--space-3) + var(--space-8) + var(--space-2));
+    left: 50%;
+    z-index: 60;
+    display: flex;
+    width: 340px;
+    max-width: calc(100vw - var(--space-8));
+    flex-direction: column;
+    gap: var(--space-2);
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+
+  /*
+   * The same 4 px bar the cards carry, in the tone of the message, then the
+   * text: the column pair means every toast in a stack shares one text edge
+   * however long it is.
+   */
+  .karta-toast {
+    display: grid;
+    min-height: var(--control-h-lg);
+    grid-template-columns: var(--space-1) minmax(0, 1fr) auto;
+    align-items: stretch;
+    overflow: hidden;
+    border: var(--hairline);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-overlay);
+    color: var(--ink);
+    font-size: var(--text-caption);
+    line-height: var(--leading-snug);
+    pointer-events: auto;
+  }
+
+  .karta-toast-bar {
+    background: var(--line-strong);
+  }
+
+  .karta-toast[data-kind='warn'] .karta-toast-bar {
+    background: var(--temper-straw);
+  }
+
+  .karta-toast[data-kind='error'] .karta-toast-bar {
+    background: var(--danger);
+  }
+
+  .karta-toast-text {
+    align-self: center;
+    margin: 0;
+    padding: var(--space-2) 0 var(--space-2) var(--space-3);
+    overflow-wrap: anywhere;
+  }
+
+  .karta-toast-close {
+    align-self: center;
+    width: var(--control-h-sm);
+    height: var(--control-h-sm);
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    margin-inline: var(--space-1);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--ink-muted);
+    cursor: pointer;
+    transition:
+      background-color var(--dur-fast) linear,
+      color var(--dur-fast) linear;
+  }
+
+  .karta-toast-close:hover {
+    background: var(--surface-hover);
+    color: var(--ink);
+  }
+
+  /* --- empty state -------------------------------------------------------- */
+
+  .karta-emptystate {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-8) var(--space-6);
+    text-align: center;
+  }
+
+  .karta-emptystate-title {
+    margin: 0;
+    font-size: var(--text-body);
+    line-height: var(--leading-body);
+    color: var(--ink);
+  }
+
+  .karta-emptystate-hint {
+    margin: 0;
+    max-width: 46ch;
+    font-size: var(--text-caption);
+    line-height: var(--leading-snug);
+    color: var(--ink-muted);
+  }
+
+  .karta-emptystate-action {
+    margin-top: var(--space-2);
+  }
+
+  /* --- keys --------------------------------------------------------------- */
+
   /* Keys in the shortcuts table and the odd inline hint. */
   .karta-kbd {
     display: inline-block;
     min-width: 1.6em;
-    padding: 1px 5px;
-    border: 1px solid var(--line);
-    border-radius: 4px;
+    padding: 1px var(--space-1);
+    border: var(--hairline);
+    border-radius: var(--radius-xs);
     background: var(--surface-sunken);
-    font-family: 'IBM Plex Mono', ui-monospace, monospace;
-    font-size: 12px;
-    line-height: 1.5;
+    font-family: var(--font-mono);
+    font-size: var(--text-control);
+    /* `--ink`, not `--ink-muted`: muted ink on the sunken ground is 4.5:1 on
+       the nose in light mode, and a key legend is not the place to spend it. */
+    color: var(--ink);
+    line-height: var(--leading-body);
     text-align: center;
     white-space: nowrap;
   }

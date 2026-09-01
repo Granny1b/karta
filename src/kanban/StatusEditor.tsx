@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, Trash2, X } from 'lucide-react';
-import { isCardNode, type ColorToken, type Id, type StatusDef } from '@/domain/board';
+import {
+  capText,
+  isCardNode,
+  MAX_NAME,
+  type ColorToken,
+  type Id,
+  type StatusDef,
+} from '@/domain/board';
 import { isColorToken } from '@/lib/colors';
 import { rankBetween } from '@/lib/ranks';
 import { makeStatus } from '@/state/factories';
@@ -223,6 +230,7 @@ export default function StatusEditor({ onClose }: { onClose(): void }): JSX.Elem
         <footer className="flex items-center gap-2 border-t border-line px-4 py-3">
           <input
             value={name}
+            maxLength={MAX_NAME}
             placeholder="New status name"
             aria-label="New status name"
             onChange={(e) => setName(e.target.value)}
@@ -250,10 +258,11 @@ export default function StatusEditor({ onClose }: { onClose(): void }): JSX.Elem
 }
 
 function StatusName({ status, onRename }: { status: StatusDef; onRename(value: string): void }): JSX.Element {
-  const draft = useDraft(status.name, onRename);
+  const draft = useDraft(status.name, (value) => onRename(capText(value, MAX_NAME)));
   return (
     <input
       value={draft.value}
+      maxLength={MAX_NAME}
       aria-label="Status name"
       onChange={(e) => draft.setValue(e.target.value)}
       onBlur={draft.flush}

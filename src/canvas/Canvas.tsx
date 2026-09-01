@@ -5,6 +5,8 @@ import {
   useRef,
   useState,
   type ClipboardEvent as ReactClipboardEvent,
+  type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
@@ -20,16 +22,18 @@ import {
   useKeyPress,
   useReactFlow,
   useStore,
-  type Connection,
   type EdgeChange,
+  type IsValidConnection,
   type NodeChange,
   type NodeMouseHandler,
   type OnConnectEnd,
+  type OnConnectStart,
   type OnNodeDrag,
+  type ProOptions,
+  type Viewport,
   type XYPosition,
 } from '@xyflow/react';
 import {
-  DEFAULT_NODE_SIZE,
   type BoardNode,
   type CardNode,
   type ColorToken,
@@ -40,14 +44,45 @@ import { api } from '@/lib/api';
 import { isEditableTarget } from '@/lib/keys';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
-import { cardNodes } from '@/state/selectors';
-import { makeCard, makeEdge, makeNote, nextCardRank } from '@/state/factories';
+import { makeEdge } from '@/state/factories';
 import { useCanvasImageDrop } from '@/media/paste';
+import CanvasToolbar from '@/canvas/CanvasToolbar';
 import ConnectMenu from '@/canvas/ConnectMenu';
+import Palette from '@/canvas/Palette';
+import SelectionMenu, {
+  NO_SELECTION,
+  SelectionAffordance,
+  SelectionOpsContext,
+  readSelectionFacts,
+  type SelectionFacts,
+  type SelectionOps,
+} from '@/canvas/SelectionMenu';
+import EmptyCanvasHint from '@/board/EmptyCanvasHint';
 import { collectForClipboard, holdForClipboard, payloadForMarker } from '@/canvas/clipboard';
 import { extractToBoard } from '@/canvas/extract';
-import { isHandleSide, oppositeSide, syncFlowEdges, syncFlowNodes } from '@/canvas/mapping';
+import { syncFlowEdges, syncFlowNodes } from '@/canvas/mapping';
 import {
+  CONNECT_DRAG_THRESHOLD,
+  REFUSAL_TEXT,
+  choiceSize,
+  makeIsValidConnection,
+  nodeRect,
+  planDrop,
+  rectCentre,
+  resolveSides,
+  type ConnectChoice,
+  type Rect,
+} from '@/canvas/connect';
+import {
+  NodeCreatedContext,
+  createAt,
+  paletteDragOver,
+  paletteDrop,
+  placementFor,
+  type CreateLink,
+} from '@/canvas/dragCreate';
+import {
+  boundsOfNodes,
   duplicateNodes,
   frameAround,
   nextCollapsed,
@@ -57,22 +92,75 @@ import {
 } from '@/canvas/ops';
 import { edgeTypes } from '@/canvas/edges';
 import { nodeTypes } from '@/canvas/nodes';
-import { useCanvasShortcuts } from '@/canvas/useCanvasShortcuts';
+import {
+  describeSelection,
+  useSelectionCounts,
+  useSelectionTracker,
+  withSelectionFlags,
+} from '@/canvas/useSelection';
+import { useCanvasShortcuts, type CanvasShortcutHandlers } from '@/canvas/useCanvasShortcuts';
+import { SelectionScope } from '@/canvas/soleSelection';
 import type { KartaFlowEdge, KartaFlowNode } from '@/canvas/types';
 import '@xyflow/react/dist/style.css';
+import '@/styles/canvas-chrome.css';
 import './canvas.css';
 
+/*
+ * Every value React Flow reads on each render lives at module scope. An inline
+ * array or object literal here takes a new identity on every render of the
+ * surface, which breaks the shallow compare on React Flow's own memo
+ * boundaries (`GraphView`, `FlowRenderer`) and re-arms the key listeners and
+ * the pan/zoom filter — sixty times a second while a marquee is being dragged.
+ */
 const SNAP_GRID: [number, number] = [8, 8];
+/*
+ * Middle button only. The right button used to pan as well, which cannot
+ * coexist with a context menu: the browser fires `contextmenu` on the press on
+ * some platforms and on the release on others, so a right-drag would either
+ * open the menu before the pan or after it. Panning keeps three ways in — the
+ * space bar, the middle button, and two-finger scroll — and the right button
+ * now does what it does everywhere else, which is ask what goes here.
+ */
+const PAN_ON_DRAG: number[] = [1];
+const MULTI_SELECT_KEYS: string[] = ['Shift', 'Meta', 'Control'];
+const ZOOM_KEYS: string[] = ['Control', 'Meta'];
+const PRO_OPTIONS: ProOptions = { hideAttribution: false };
+const FIT_VIEW_OPTIONS = { padding: 0.2, duration: 200, maxZoom: 1 };
+
 const BACKGROUND_FADE_ZOOM = 0.4;
-/** Below this distance an ended connection was a click, not a drop. */
-const STRAY_DROP_RADIUS = 20;
+
+/**
+ * What a drop is allowed to do, decided against the document rather than the
+ * flow arrays, so a refusal reads the same rule everywhere (spec 5.3).
+ */
+const isValidConnection: IsValidConnection<KartaFlowEdge> = makeIsValidConnection(
+  () => useBoardStore.getState().doc,
+);
+
+/** Where the arrow that opened the picker came from, if one did. */
+interface ConnectOrigin {
+  id: Id;
+  handle: HandleSide;
+  rect: Rect;
+}
 
 interface ConnectMenuState {
+  /** Position within the canvas wrapper, in pixels. */
   x: number;
   y: number;
+  /** Where in the document the new node goes. */
   flow: XYPosition;
-  fromId: Id;
-  fromHandle: HandleSide;
+  /** `null` when the picker was opened on its own rather than by an arrow. */
+  from: ConnectOrigin | null;
+}
+
+/** A frame drag carries the nodes inside it; `dx`/`dy` are the last frame applied. */
+interface GroupDrag {
+  id: Id;
+  origin: XYPosition;
+  members: Map<Id, XYPosition>;
+  dx: number;
+  dy: number;
 }
 
 /** The dot grid stops helping long before it stops being drawn (spec 7.3). */
@@ -101,18 +189,32 @@ function CanvasSurface(): JSX.Element | null {
   const nodesRef = useRef<KartaFlowNode[]>([]);
   const edgesRef = useRef<KartaFlowEdge[]>([]);
   const pendingSelection = useRef<Id[] | null>(null);
-  const groupDrag = useRef<{ id: Id; origin: XYPosition; members: Map<Id, XYPosition> } | null>(null);
+  const groupDrag = useRef<GroupDrag | null>(null);
   const extracting = useRef(false);
 
   const [flowNodes, setFlowNodesState] = useState<KartaFlowNode[]>([]);
   const [flowEdges, setFlowEdgesState] = useState<KartaFlowEdge[]>([]);
   const [connectMenu, setConnectMenu] = useState<ConnectMenuState | null>(null);
+  /** Where the selection menu was opened, in the wrapper's own pixels. */
+  const [selectionMenu, setSelectionMenu] = useState<XYPosition | null>(null);
+
+  // Escape reads the menu without listing it as a dependency, so the keyboard
+  // handlers are built once instead of once per frame.
+  const connectMenuRef = useRef<ConnectMenuState | null>(null);
+  connectMenuRef.current = connectMenu;
+  const selectionMenuRef = useRef<XYPosition | null>(null);
+  selectionMenuRef.current = selectionMenu;
 
   const { screenToFlowPosition, flowToScreenPosition, fitView, zoomTo, getViewport } = useReactFlow<
     KartaFlowNode,
     KartaFlowEdge
   >();
   const altPressed = useKeyPress('Alt');
+
+  /* --- selection: read by commands, rendered only as a count -------------- */
+
+  const selection = useSelectionTracker();
+  const selectionCounts = useSelectionCounts(selection);
 
   /* --- flow arrays: one writer, so callbacks never read a stale array ----- */
 
@@ -140,32 +242,23 @@ function CanvasSurface(): JSX.Element | null {
   const edges = doc?.edges;
 
   useEffect(() => {
-    setFlowNodes((prev) => {
-      let next = syncFlowNodes(prev, nodes ?? []);
-      const pending = pendingSelection.current;
-      if (pending) {
-        pendingSelection.current = null;
-        const wanted = new Set(pending);
-        next = next.map((node) =>
-          node.selected === wanted.has(node.id) ? node : { ...node, selected: wanted.has(node.id) },
-        );
-      }
-      return next;
-    });
-  }, [nodes, setFlowNodes]);
+    const list = nodes ?? [];
+    const pending = pendingSelection.current;
+    pendingSelection.current = null;
+
+    // The tracker is the one source of truth for what is selected: a fresh
+    // node arrives unselected, and a deleted one never reports a change.
+    if (pending) selection.setNodes(pending);
+    else selection.retainNodes(list);
+
+    setFlowNodes((prev) => withSelectionFlags(syncFlowNodes(prev, list), selection.nodes()));
+  }, [nodes, selection, setFlowNodes]);
 
   useEffect(() => {
-    setFlowEdges((prev) => syncFlowEdges(prev, edges ?? []));
-  }, [edges, setFlowEdges]);
-
-  const selectedNodeIds = useMemo(
-    () => flowNodes.filter((node) => node.selected).map((node) => node.id),
-    [flowNodes],
-  );
-  const selectedEdgeIds = useMemo(
-    () => flowEdges.filter((edge) => edge.selected).map((edge) => edge.id),
-    [flowEdges],
-  );
+    const list = edges ?? [];
+    selection.retainEdges(list);
+    setFlowEdges((prev) => withSelectionFlags(syncFlowEdges(prev, list), selection.edges()));
+  }, [edges, selection, setFlowEdges]);
 
   /* --- creating things --------------------------------------------------- */
 
@@ -178,37 +271,35 @@ function CanvasSurface(): JSX.Element | null {
     return screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
   }, [getViewport, screenToFlowPosition]);
 
-  const createNode = useCallback((kind: 'card' | 'note', at: XYPosition): BoardNode | null => {
-    const store = useBoardStore.getState();
-    const current = store.doc;
-    if (!current) return null;
-
-    const size = DEFAULT_NODE_SIZE[kind];
-    const position = { x: Math.round(at.x - size.w / 2), y: Math.round(at.y - size.h / 2) };
-    const userId = store.me?.userId ?? '';
-    const node: BoardNode =
-      kind === 'card'
-        ? makeCard({ userId, position, rank: nextCardRank(cardNodes(current), null) })
-        : makeNote({ userId, position });
-
+  /**
+   * What the canvas does with a node the instant it exists. The palette and the
+   * toolbar are mounted inside this surface and reach it through context, so a
+   * card clicked out of the palette and one made with `N` are the same act
+   * right down to what is selected afterwards.
+   */
+  const selectCreated = useCallback((node: BoardNode): void => {
     pendingSelection.current = [node.id];
-    store.addNode(node);
-    return node;
   }, []);
+
+  const createNode = useCallback(
+    (choice: ConnectChoice, at: XYPosition, link?: CreateLink): BoardNode | null => {
+      const node = createAt(choice, at, link);
+      if (node !== null) selectCreated(node);
+      return node;
+    },
+    [selectCreated],
+  );
 
   /* --- selection --------------------------------------------------------- */
 
   const selectNodes = useCallback(
     (ids: Id[]): void => {
-      const wanted = new Set(ids);
-      setFlowNodes((prev) =>
-        prev.map((node) =>
-          node.selected === wanted.has(node.id) ? node : { ...node, selected: wanted.has(node.id) },
-        ),
-      );
-      setFlowEdges((prev) => prev.map((edge) => (edge.selected ? { ...edge, selected: false } : edge)));
+      selection.setNodes(ids);
+      selection.setEdges([]);
+      setFlowNodes((prev) => withSelectionFlags(prev, selection.nodes()));
+      setFlowEdges((prev) => withSelectionFlags(prev, selection.edges()));
     },
-    [setFlowEdges, setFlowNodes],
+    [selection, setFlowEdges, setFlowNodes],
   );
 
   const focusSurface = useCallback((): void => {
@@ -218,18 +309,27 @@ function CanvasSurface(): JSX.Element | null {
 
   /* --- React Flow callbacks ---------------------------------------------- */
 
+  /*
+   * `applyNodeChanges` returns a fresh array whatever it is handed, and a fresh
+   * array is a full re-adoption of every node inside React Flow — so an empty
+   * batch, which a gesture can produce, is dropped before it costs anything.
+   */
   const onNodesChange = useCallback(
     (changes: NodeChange<KartaFlowNode>[]): void => {
+      if (changes.length === 0) return;
+      selection.readNodeChanges(changes);
       setFlowNodes((prev) => applyNodeChanges(changes, prev));
     },
-    [setFlowNodes],
+    [selection, setFlowNodes],
   );
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange<KartaFlowEdge>[]): void => {
+      if (changes.length === 0) return;
+      selection.readEdgeChanges(changes);
       setFlowEdges((prev) => applyEdgeChanges(changes, prev));
     },
-    [setFlowEdges],
+    [selection, setFlowEdges],
   );
 
   const commitPositions = useCallback((moved: Map<Id, XYPosition>): void => {
@@ -264,14 +364,15 @@ function CanvasSurface(): JSX.Element | null {
     if (!current) return;
 
     const alreadyMoving = new Set(dragged.map((n) => n.id));
+    const byId = new Map(nodesRef.current.map((n) => [n.id, n]));
     const members = new Map<Id, XYPosition>();
     for (const id of nodesInsideFrame(board, current.nodes)) {
       if (alreadyMoving.has(id)) continue;
-      const flowNode = nodesRef.current.find((n) => n.id === id);
+      const flowNode = byId.get(id);
       if (flowNode) members.set(id, { ...flowNode.position });
     }
     if (members.size === 0) return;
-    groupDrag.current = { id: node.id, origin: { ...node.position }, members };
+    groupDrag.current = { id: node.id, origin: { ...node.position }, members, dx: 0, dy: 0 };
   }, []);
 
   const onNodeDrag: OnNodeDrag<KartaFlowNode> = useCallback(
@@ -280,6 +381,10 @@ function CanvasSurface(): JSX.Element | null {
       if (!drag || drag.id !== node.id) return;
       const dx = node.position.x - drag.origin.x;
       const dy = node.position.y - drag.origin.y;
+      // Snapping means most pointer moves land on the offset already applied.
+      if (dx === drag.dx && dy === drag.dy) return;
+      drag.dx = dx;
+      drag.dy = dy;
       setFlowNodes((prev) =>
         prev.map((candidate) => {
           const start = drag.members.get(candidate.id);
@@ -296,13 +401,15 @@ function CanvasSurface(): JSX.Element | null {
       const drag = groupDrag.current;
       groupDrag.current = null;
 
+      // One write, at the end of the gesture, so a drag is one undo entry.
       const moved = new Map<Id, XYPosition>();
       for (const item of dragged) moved.set(item.id, item.position);
       moved.set(node.id, node.position);
       if (drag) {
+        const byId = new Map(nodesRef.current.map((n) => [n.id, n.position]));
         for (const id of drag.members.keys()) {
-          const flowNode = nodesRef.current.find((n) => n.id === id);
-          if (flowNode) moved.set(id, flowNode.position);
+          const at = byId.get(id);
+          if (at) moved.set(id, at);
         }
       }
       commitPositions(moved);
@@ -310,64 +417,123 @@ function CanvasSurface(): JSX.Element | null {
     [commitPositions],
   );
 
-  const onConnect = useCallback((connection: Connection): void => {
-    if (!connection.source || !connection.target || connection.source === connection.target) return;
-    const sourceHandle = isHandleSide(connection.sourceHandle) ? connection.sourceHandle : 'right';
-    const targetHandle = isHandleSide(connection.targetHandle)
-      ? connection.targetHandle
-      : oppositeSide(sourceHandle);
+  const onMoveEnd = useCallback((_event: unknown, viewport: Viewport): void => {
+    useBoardStore.getState().setViewport(viewport);
+  }, []);
 
-    useBoardStore.getState().addEdgeToBoard(
-      makeEdge({
-        source: connection.source,
-        target: connection.target,
-        sourceHandle,
-        targetHandle,
-      }),
-    );
+  /* --- drawing an arrow (spec 5.3) --------------------------------------- */
+
+  /*
+   * The whole gesture is resolved when it ends. React Flow also offers
+   * `onConnect`, which fires for a drop it judged valid — but it reports the
+   * two ends and not the pointer, and where the pointer was is exactly what
+   * decides which sides the arrow attaches to. Mounting both would add the
+   * edge twice, so this is the one owner.
+   */
+  const onConnectStart: OnConnectStart = useCallback(() => {
+    setConnectMenu(null);
+    // A class rather than state: an arrow drag repaints every frame, and this
+    // surface must not re-render on any of them.
+    wrapperRef.current?.classList.add('is-connecting');
   }, []);
 
   const onConnectEnd: OnConnectEnd = useCallback(
     (_event, state) => {
-      if (!state.fromNode || state.toNode) return;
-      // A click on a handle ends where it started; that is not a drop.
-      if (Math.hypot(state.to.x - state.from.x, state.to.y - state.from.y) < STRAY_DROP_RADIUS) return;
+      wrapperRef.current?.classList.remove('is-connecting');
+      if (!state.fromNode) return;
 
-      const rect = wrapperRef.current?.getBoundingClientRect();
-      const screen = flowToScreenPosition(state.to);
-      setConnectMenu({
-        x: screen.x - (rect?.left ?? 0),
-        y: screen.y - (rect?.top ?? 0),
-        flow: state.to,
-        fromId: state.fromNode.id,
-        fromHandle: isHandleSide(state.fromHandle?.id) ? state.fromHandle.id : 'right',
+      const store = useBoardStore.getState();
+      const current = store.doc;
+      if (!current) return;
+
+      const fromId = state.fromNode.id;
+      const plan = planDrop({
+        doc: current,
+        fromId,
+        fromHandleId: state.fromHandle?.id,
+        point: state.to,
+        overId: state.toNode?.id ?? null,
+        overHandleId: state.toHandle?.id ?? null,
       });
+
+      switch (plan.action) {
+        case 'connect':
+          store.addEdgeToBoard(
+            makeEdge({
+              source: fromId,
+              target: plan.target.id,
+              sourceHandle: plan.sides.sourceHandle,
+              targetHandle: plan.sides.targetHandle,
+            }),
+          );
+          return;
+
+        case 'refuse':
+          useUiStore.getState().toast(REFUSAL_TEXT[plan.refusal], 'warn');
+          return;
+
+        case 'create': {
+          const source = current.nodes.find((node) => node.id === fromId);
+          if (!source) return;
+          const rect = wrapperRef.current?.getBoundingClientRect();
+          const screen = flowToScreenPosition(state.to);
+          setConnectMenu({
+            x: screen.x - (rect?.left ?? 0),
+            y: screen.y - (rect?.top ?? 0),
+            flow: state.to,
+            from: { id: fromId, handle: plan.sourceHandle, rect: nodeRect(source) },
+          });
+          return;
+        }
+
+        default:
+          return;
+      }
     },
     [flowToScreenPosition],
   );
 
+  /** The picker, opened on its own: no arrow, just "what goes here". */
+  const openPicker = useCallback((screen: XYPosition, flow: XYPosition): void => {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    setConnectMenu({
+      x: screen.x - (rect?.left ?? 0),
+      y: screen.y - (rect?.top ?? 0),
+      flow,
+      from: null,
+    });
+  }, []);
+
   const pickFromConnectMenu = useCallback(
-    (kind: 'card' | 'note'): void => {
-      const menu = connectMenu;
+    (choice: ConnectChoice): void => {
+      const menu = connectMenuRef.current;
       setConnectMenu(null);
       if (!menu) return;
 
-      const node = createNode(kind, menu.flow);
-      if (!node) return;
-      useBoardStore.getState().addEdgeToBoard(
-        makeEdge({
-          source: menu.fromId,
-          target: node.id,
-          sourceHandle: menu.fromHandle,
-          targetHandle: oppositeSide(menu.fromHandle),
-        }),
-      );
+      const from = menu.from;
+      if (from === null) {
+        createNode(choice, menu.flow);
+        return;
+      }
+
+      // The node lands centred on the drop, so where it lands is known before
+      // it exists — which is what lets the arrow be committed with it.
+      const size = choiceSize(choice);
+      const at = placementFor(choice, menu.flow);
+      const box: Rect = { x: at.x, y: at.y, w: size.w, h: size.h };
+      const sides = resolveSides(from.rect, box, rectCentre(box), from.handle);
+      createNode(choice, menu.flow, { source: from.id, sides });
     },
-    [connectMenu, createNode],
+    [createNode],
   );
+
+  const closeConnectMenu = useCallback((): void => setConnectMenu(null), []);
+
+  /* --- pointer on the field ---------------------------------------------- */
 
   const onPaneClick = useCallback((): void => {
     setConnectMenu(null);
+    setSelectionMenu(null);
     focusSurface();
   }, [focusSurface]);
 
@@ -375,14 +541,29 @@ function CanvasSurface(): JSX.Element | null {
     (event: ReactMouseEvent): void => {
       const target = event.target;
       if (!(target instanceof HTMLElement) || !target.classList.contains('react-flow__pane')) return;
-      createNode('card', screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+      createNode({ kind: 'card' }, screenToFlowPosition({ x: event.clientX, y: event.clientY }));
     },
     [createNode, screenToFlowPosition],
   );
 
+  /*
+   * Double-clicking the field makes a card, because that is the one thing it is
+   * usually for (spec 9). Everything else it could have made is one press of
+   * the right button away, at the same spot.
+   */
+  const onPaneContextMenu = useCallback(
+    (event: ReactMouseEvent | MouseEvent): void => {
+      event.preventDefault();
+      const screen = { x: event.clientX, y: event.clientY };
+      openPicker(screen, screenToFlowPosition(screen));
+    },
+    [openPicker, screenToFlowPosition],
+  );
+
   const onNodeDoubleClick: NodeMouseHandler<KartaFlowNode> = useCallback((_event, node) => {
     const kind = node.data.node.kind;
-    // A board link opens its board from inside the node itself.
+    // A board link opens its board from inside the node itself; text and shape
+    // nodes put the caret in their own words.
     if (kind === 'card' || kind === 'note') useUiStore.getState().openEditor(node.id);
   }, []);
 
@@ -390,14 +571,36 @@ function CanvasSurface(): JSX.Element | null {
 
   const imageDrop = useCanvasImageDrop(boardId, screenToFlowPosition);
 
+  /*
+   * Two kinds of drag land here: an item from the palette, which carries its
+   * own MIME type, and a file from the desktop. The palette is asked first and
+   * hands the event on when it is not its own.
+   */
+  const onDragOver = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>): void => {
+      if (paletteDragOver(event)) return;
+      imageDrop.onDragOver(event);
+    },
+    [imageDrop],
+  );
+
+  const onDrop = useCallback(
+    (event: ReactDragEvent<HTMLDivElement>): void => {
+      if (paletteDrop(event, screenToFlowPosition, createNode) !== null) return;
+      imageDrop.onDrop(event);
+    },
+    [createNode, imageDrop, screenToFlowPosition],
+  );
+
   const onCopy = useCallback(
     (event: ReactClipboardEvent<HTMLDivElement>): void => {
       // A field inside the canvas keeps its own copy behaviour.
       if (isEditableTarget(event.target)) return;
 
       const current = useBoardStore.getState().doc;
-      if (!current || selectedNodeIds.length === 0) return;
-      const payload = collectForClipboard(current, selectedNodeIds);
+      const ids = selection.nodeIds();
+      if (!current || ids.length === 0) return;
+      const payload = collectForClipboard(current, ids);
       if (!payload) return;
 
       event.preventDefault();
@@ -406,7 +609,7 @@ function CanvasSurface(): JSX.Element | null {
         .getState()
         .toast(payload.nodes.length === 1 ? 'Copied 1 node' : `Copied ${payload.nodes.length} nodes`);
     },
-    [selectedNodeIds],
+    [selection],
   );
 
   /** True when the event carried our nodes, so the image handler can stand down. */
@@ -464,17 +667,19 @@ function CanvasSurface(): JSX.Element | null {
     const current = store.doc;
     if (!current) return;
     const locked = new Set(current.nodes.filter((node) => node.locked).map((node) => node.id));
-    const nodeIds = selectedNodeIds.filter((id) => !locked.has(id));
+    const nodeIds = selection.nodeIds().filter((id) => !locked.has(id));
+    const edgeIds = selection.edgeIds();
     if (nodeIds.length > 0) store.removeNodes(nodeIds);
-    if (selectedEdgeIds.length > 0) store.removeEdges(selectedEdgeIds);
-  }, [selectedEdgeIds, selectedNodeIds]);
+    if (edgeIds.length > 0) store.removeEdges(edgeIds);
+  }, [selection]);
 
   const duplicateSelection = useCallback((): void => {
     const store = useBoardStore.getState();
     const current = store.doc;
-    if (!current || selectedNodeIds.length === 0) return;
+    const ids = selection.nodeIds();
+    if (!current || ids.length === 0) return;
 
-    const copy = duplicateNodes(current, selectedNodeIds, store.me?.userId ?? '');
+    const copy = duplicateNodes(current, ids, store.me?.userId ?? '');
     if (copy.nodes.length === 0) return;
 
     pendingSelection.current = copy.nodes.map((node) => node.id);
@@ -482,14 +687,14 @@ function CanvasSurface(): JSX.Element | null {
       d.nodes.push(...copy.nodes);
       d.edges.push(...copy.edges);
     });
-  }, [selectedNodeIds]);
+  }, [selection]);
 
   const groupSelection = useCallback((): void => {
     const store = useBoardStore.getState();
     const current = store.doc;
-    if (!current || selectedNodeIds.length === 0) return;
+    const wanted = selection.nodes();
+    if (!current || wanted.size === 0) return;
 
-    const wanted = new Set(selectedNodeIds);
     const frame = frameAround(
       current.nodes.filter((node) => wanted.has(node.id) && node.kind !== 'group'),
       store.me?.userId ?? '',
@@ -498,27 +703,26 @@ function CanvasSurface(): JSX.Element | null {
 
     pendingSelection.current = [frame.id];
     store.addNode(frame);
-  }, [selectedNodeIds]);
+  }, [selection]);
 
   const applyColor = useCallback(
     (color: ColorToken): void => {
-      const store = useBoardStore.getState();
-      if (selectedNodeIds.length === 0 && selectedEdgeIds.length === 0) return;
-      const nodeIds = new Set(selectedNodeIds);
-      const edgeIds = new Set(selectedEdgeIds);
+      const nodeIds = selection.nodes();
+      const edgeIds = selection.edges();
+      if (nodeIds.size === 0 && edgeIds.size === 0) return;
 
-      store.mutate('Apply colour', (d) => {
+      useBoardStore.getState().mutate('Apply colour', (d) => {
         for (const node of d.nodes) if (nodeIds.has(node.id) && !node.locked) node.color = color;
         for (const edge of d.edges) if (edgeIds.has(edge.id)) edge.color = color;
       });
     },
-    [selectedEdgeIds, selectedNodeIds],
+    [selection],
   );
 
   const nudge = useCallback(
     (dx: number, dy: number): void => {
-      if (selectedNodeIds.length === 0) return;
-      const wanted = new Set(selectedNodeIds);
+      const wanted = selection.nodes();
+      if (wanted.size === 0) return;
       useBoardStore.getState().mutate('Move nodes', (d) => {
         for (const node of d.nodes) {
           if (!wanted.has(node.id) || node.locked) continue;
@@ -526,15 +730,15 @@ function CanvasSurface(): JSX.Element | null {
         }
       });
     },
-    [selectedNodeIds],
+    [selection],
   );
 
   const toggleCollapse = useCallback((): void => {
     const store = useBoardStore.getState();
     const current = store.doc;
-    if (!current || selectedNodeIds.length === 0) return;
+    const wanted = selection.nodes();
+    if (!current || wanted.size === 0) return;
 
-    const wanted = new Set(selectedNodeIds);
     const cards = current.nodes.filter(
       (node): node is CardNode => node.kind === 'card' && wanted.has(node.id) && !node.locked,
     );
@@ -546,12 +750,13 @@ function CanvasSurface(): JSX.Element | null {
         if (node.kind === 'card' && wanted.has(node.id) && !node.locked) node.collapsed = collapsed;
       }
     });
-  }, [selectedNodeIds]);
+  }, [selection]);
 
   const extract = useCallback((): void => {
     if (extracting.current) return;
     const ui = useUiStore.getState();
-    if (selectedNodeIds.length === 0) {
+    const ids = selection.nodeIds();
+    if (ids.length === 0) {
       ui.toast('Select the nodes to extract first', 'warn');
       return;
     }
@@ -563,7 +768,7 @@ function CanvasSurface(): JSX.Element | null {
         api,
         onWarning: (message) => ui.toast(message, 'warn'),
       },
-      selectedNodeIds,
+      ids,
     )
       .then((result) => {
         ui.toast(`Moved ${result.nodeCount} nodes into “${result.title}”`);
@@ -574,113 +779,323 @@ function CanvasSurface(): JSX.Element | null {
       .finally(() => {
         extracting.current = false;
       });
-  }, [selectedNodeIds]);
+  }, [selection]);
+
+  /**
+   * Locking is spec 5.2's own field, honoured everywhere on the canvas — a
+   * locked node refuses a drag, a resize, a colour and a delete — and until the
+   * menu existed nothing in the product could write it.
+   */
+  const setLocked = useCallback(
+    (locked: boolean): void => {
+      const wanted = selection.nodes();
+      if (wanted.size === 0) return;
+      const verb = locked ? 'Lock' : 'Unlock';
+      useBoardStore.getState().mutate(wanted.size === 1 ? `${verb} node` : `${verb} nodes`, (d) => {
+        for (const node of d.nodes) if (wanted.has(node.id)) node.locked = locked;
+      });
+    },
+    [selection],
+  );
+
+  /* --- the selection menu (spec 5.2, spec 9) ----------------------------- */
+
+  const selectionFacts = useCallback((): SelectionFacts => {
+    const current = useBoardStore.getState().doc;
+    if (!current) return NO_SELECTION;
+    return readSelectionFacts(current.nodes, selection.nodes(), selection.edges().size);
+  }, [selection]);
+
+  /** Opened at a point in viewport pixels — a pointer, or a button's corner. */
+  const openSelectionMenu = useCallback((screen: XYPosition): void => {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    setConnectMenu(null);
+    setSelectionMenu({ x: screen.x - (rect?.left ?? 0), y: screen.y - (rect?.top ?? 0) });
+  }, []);
+
+  const closeSelectionMenu = useCallback((): void => {
+    setSelectionMenu(null);
+    // The caret came from the canvas and goes back to it: the menu is unmounting
+    // under the focused item, and focus left on nothing is focus on the body.
+    wrapperRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const onNodeContextMenu: NodeMouseHandler<KartaFlowNode> = useCallback(
+    (event, node) => {
+      event.preventDefault();
+      // Right-clicking outside the selection means "this one", the way it does
+      // everywhere else — otherwise the menu would act on a crowd the user
+      // cannot see they are still holding.
+      if (!selection.nodes().has(node.id)) selectNodes([node.id]);
+      openSelectionMenu({ x: event.clientX, y: event.clientY });
+    },
+    [openSelectionMenu, selectNodes, selection],
+  );
+
+  /**
+   * The context-menu key fires `contextmenu` at whatever holds focus, which on
+   * this surface is the wrapper itself — the key has already opened our own
+   * menu on `keydown`, and the browser's must not open on top of it. A pointer
+   * never reaches here with the wrapper as its target: the pane and the nodes
+   * answer those, and both prevent it themselves.
+   */
+  const onWrapperContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>): void => {
+    if (event.target === event.currentTarget) event.preventDefault();
+  }, []);
+
+  /**
+   * The menu without a pointer: the context-menu key, and `Shift+F10` for the
+   * keyboards that lack one. It opens on the corner of the selection's own box,
+   * which is where the button on the box sits.
+   */
+  const onSurfaceKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+      const wanted = event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey);
+      if (!wanted || isEditableTarget(event.target)) return;
+
+      const current = useBoardStore.getState().doc;
+      const selected = selection.nodes();
+      if (!current || selected.size === 0) return;
+      const bounds = boundsOfNodes(current.nodes.filter((node) => selected.has(node.id)));
+      if (!bounds) return;
+
+      event.preventDefault();
+      openSelectionMenu(flowToScreenPosition({ x: bounds.x + bounds.w, y: bounds.y }));
+    },
+    [flowToScreenPosition, openSelectionMenu, selection],
+  );
+
+  /**
+   * The commands, handed to the menu and to the toolbar exactly as the keyboard
+   * gets them. Nothing downstream reimplements one — `Ctrl+G` and *Group into a
+   * frame* are the same call, so they cannot come to mean different things.
+   */
+  const selectionOps = useMemo<SelectionOps>(
+    () => ({
+      facts: selectionFacts,
+      selectedNodeIds: () => selection.nodeIds(),
+      openMenuAt: openSelectionMenu,
+      group: groupSelection,
+      extract,
+      duplicate: duplicateSelection,
+      applyColor,
+      setLocked,
+      remove: removeSelection,
+    }),
+    [
+      applyColor,
+      duplicateSelection,
+      extract,
+      groupSelection,
+      openSelectionMenu,
+      removeSelection,
+      selection,
+      selectionFacts,
+      setLocked,
+    ],
+  );
+
+  const shortcuts = useMemo<CanvasShortcutHandlers>(
+    () => ({
+      newCard: () => createNode({ kind: 'card' }, centreOfView()),
+      newNote: () => createNode({ kind: 'note' }, centreOfView()),
+      newText: () => createNode({ kind: 'text' }, centreOfView()),
+      newShape: () => {
+        const rect = wrapperRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        openPicker(
+          { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+          centreOfView(),
+        );
+      },
+      openEditor: () => {
+        const ids = selection.nodeIds();
+        if (ids.length !== 1) return;
+        const node = useBoardStore.getState().doc?.nodes.find((n) => n.id === ids[0]);
+        if (node && (node.kind === 'card' || node.kind === 'note')) {
+          useUiStore.getState().openEditor(node.id);
+        }
+      },
+      escape: () => {
+        const ui = useUiStore.getState();
+        if (ui.editorNodeId !== null || ui.dialog !== null) return; // the shell owns those
+        // Both menus stop Escape at the window before it reaches here; these
+        // branches are what happens if one is open while the caret is not in it.
+        if (selectionMenuRef.current) {
+          setSelectionMenu(null);
+          return;
+        }
+        if (connectMenuRef.current) {
+          setConnectMenu(null);
+          return;
+        }
+        selectNodes([]);
+      },
+      duplicate: duplicateSelection,
+      deleteSelection: removeSelection,
+      group: groupSelection,
+      extract,
+      zoomToFit: () => void fitView(FIT_VIEW_OPTIONS),
+      zoomTo100: () => void zoomTo(1, { duration: 200 }),
+      selectAll: () => selectNodes(nodesRef.current.map((node) => node.id)),
+      toggleCollapse,
+      applyColor,
+      nudge,
+    }),
+    [
+      applyColor,
+      centreOfView,
+      createNode,
+      duplicateSelection,
+      extract,
+      fitView,
+      groupSelection,
+      nudge,
+      openPicker,
+      removeSelection,
+      selectNodes,
+      selection,
+      toggleCollapse,
+      zoomTo,
+    ],
+  );
 
   // A conflict is a blocking dialog that does not announce itself through
   // `ui.dialog` (spec 6.4), and nothing behind it may edit the document.
-  useCanvasShortcuts(view === 'canvas' && dialog === null && saveState !== 'conflict', {
-    newCard: () => createNode('card', centreOfView()),
-    newNote: () => createNode('note', centreOfView()),
-    openEditor: () => {
-      const id = selectedNodeIds[0];
-      if (!id || selectedNodeIds.length !== 1) return;
-      const node = useBoardStore.getState().doc?.nodes.find((n) => n.id === id);
-      if (node && (node.kind === 'card' || node.kind === 'note')) useUiStore.getState().openEditor(id);
-    },
-    escape: () => {
-      const ui = useUiStore.getState();
-      if (ui.editorNodeId !== null || ui.dialog !== null) return; // the shell owns those
-      if (connectMenu) {
-        setConnectMenu(null);
-        return;
-      }
-      selectNodes([]);
-    },
-    duplicate: duplicateSelection,
-    deleteSelection: removeSelection,
-    group: groupSelection,
-    extract,
-    zoomToFit: () => void fitView({ padding: 0.2, duration: 200, maxZoom: 1 }),
-    zoomTo100: () => void zoomTo(1, { duration: 200 }),
-    selectAll: () => selectNodes(nodesRef.current.map((node) => node.id)),
-    toggleCollapse,
-    applyColor,
-    nudge,
-  });
+  useCanvasShortcuts(view === 'canvas' && dialog === null && saveState !== 'conflict', shortcuts);
+
+  /* --- render ------------------------------------------------------------ */
+
+  // The camera the board opened with. Frozen at mount: React Flow reads it
+  // once, and a fresh object on every pan would re-arm the pan/zoom handler.
+  const openingViewport = useRef<Viewport | null>(null);
+  if (openingViewport.current === null && doc) openingViewport.current = doc.viewport;
+
+  // Element identity is stable, so React skips these subtrees on every
+  // re-render the marquee causes. Everything in them reads what it needs from
+  // a store of its own.
+  const chrome = useMemo(
+    () => (
+      <>
+        <FadingBackground />
+        <Controls position="bottom-right" showInteractive={false} />
+      </>
+    ),
+    [],
+  );
+
+  const furniture = useMemo(
+    () => (
+      <>
+        <EmptyCanvasHint />
+        <Palette />
+        <SelectionAffordance />
+        <CanvasToolbar />
+      </>
+    ),
+    [],
+  );
+
+  const selectionLabel = describeSelection(selectionCounts);
 
   if (!doc) return null;
 
   return (
-    <div
-      ref={wrapperRef}
-      className="karta-canvas"
-      tabIndex={-1}
-      onCopy={onCopy}
-      onPaste={onPaste}
-      onDrop={imageDrop.onDrop}
-      onDragOver={imageDrop.onDragOver}
-      onPointerDownCapture={focusSurface}
-    >
-      <ReactFlow<KartaFlowNode, KartaFlowEdge>
-        nodes={flowNodes}
-        edges={flowEdges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeDragStart={onNodeDragStart}
-        onNodeDrag={onNodeDrag}
-        onNodeDragStop={onNodeDragStop}
-        onNodeDoubleClick={onNodeDoubleClick}
-        onConnect={onConnect}
-        onConnectEnd={onConnectEnd}
-        onPaneClick={onPaneClick}
-        onDoubleClick={onPaneDoubleClick}
-        onMoveEnd={(_event, viewport) => useBoardStore.getState().setViewport(viewport)}
-        isValidConnection={(connection) => connection.source !== connection.target}
-        defaultViewport={doc.viewport}
-        minZoom={0.1}
-        maxZoom={2.5}
-        snapToGrid={!altPressed}
-        snapGrid={SNAP_GRID}
-        onlyRenderVisibleElements
-        connectionMode={ConnectionMode.Loose}
-        connectionRadius={28}
-        zoomOnScroll={false}
-        zoomOnPinch
-        zoomOnDoubleClick={false}
-        zoomActivationKeyCode={['Control', 'Meta']}
-        panOnScroll
-        panOnDrag={[1, 2]}
-        panActivationKeyCode="Space"
-        selectionOnDrag
-        selectionMode={SelectionMode.Partial}
-        selectionKeyCode="Shift"
-        multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
-        deleteKeyCode={null}
-        nodeDragThreshold={2}
-        elevateNodesOnSelect
-        proOptions={{ hideAttribution: false }}
-      >
-        <FadingBackground />
-        <Controls position="bottom-right" showInteractive={false} />
-      </ReactFlow>
+    /*
+     * The tracker, handed to the two affordances that belong to one item — the
+     * resize handles and the arrow editor. They read a count out of it and
+     * mount nothing while a marquee is holding a crowd.
+     *
+     * Beneath it, the same selection as a set of *commands*: the menu on the
+     * selection and the toolbar's menu both name operations that live here, and
+     * naming them is all they do.
+     */
+    <SelectionScope.Provider value={selection}>
+      <SelectionOpsContext.Provider value={selectionOps}>
+        <NodeCreatedContext.Provider value={selectCreated}>
+          <div
+            ref={wrapperRef}
+            className="karta-canvas"
+            tabIndex={-1}
+            onCopy={onCopy}
+            onPaste={onPaste}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            onKeyDown={onSurfaceKeyDown}
+            onContextMenu={onWrapperContextMenu}
+            onPointerDownCapture={focusSurface}
+          >
+            <ReactFlow<KartaFlowNode, KartaFlowEdge>
+              nodes={flowNodes}
+              edges={flowEdges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeDragStart={onNodeDragStart}
+              onNodeDrag={onNodeDrag}
+              onNodeDragStop={onNodeDragStop}
+              onNodeDoubleClick={onNodeDoubleClick}
+              onConnectStart={onConnectStart}
+              onConnectEnd={onConnectEnd}
+              onPaneClick={onPaneClick}
+              onPaneContextMenu={onPaneContextMenu}
+              onNodeContextMenu={onNodeContextMenu}
+              onDoubleClick={onPaneDoubleClick}
+              onMoveEnd={onMoveEnd}
+              isValidConnection={isValidConnection}
+              defaultViewport={openingViewport.current ?? doc.viewport}
+              minZoom={0.1}
+              maxZoom={2.5}
+              snapToGrid={!altPressed}
+              snapGrid={SNAP_GRID}
+              onlyRenderVisibleElements
+              connectionMode={ConnectionMode.Loose}
+              connectionRadius={28}
+              connectionDragThreshold={CONNECT_DRAG_THRESHOLD}
+              zoomOnScroll={false}
+              zoomOnPinch
+              zoomOnDoubleClick={false}
+              zoomActivationKeyCode={ZOOM_KEYS}
+              panOnScroll
+              panOnDrag={PAN_ON_DRAG}
+              panActivationKeyCode="Space"
+              selectionOnDrag
+              selectionMode={SelectionMode.Partial}
+              selectionKeyCode="Shift"
+              multiSelectionKeyCode={MULTI_SELECT_KEYS}
+              deleteKeyCode={null}
+              nodeDragThreshold={2}
+              elevateNodesOnSelect
+              proOptions={PRO_OPTIONS}
+            >
+              {chrome}
+            </ReactFlow>
 
-      {doc.nodes.length === 0 && (
-        <p className="karta-empty">Double-click anywhere to add a card</p>
-      )}
+            {furniture}
 
-      {imageDrop.uploading && <p className="karta-uploading">Adding image…</p>}
+            <div className="karta-dock" aria-live="polite">
+              {selectionLabel && <p className="karta-dock-chip">{selectionLabel}</p>}
+              {imageDrop.uploading && <p className="karta-dock-chip">Adding image…</p>}
+            </div>
 
-      {connectMenu && (
-        <ConnectMenu
-          x={connectMenu.x}
-          y={connectMenu.y}
-          onPick={pickFromConnectMenu}
-          onCancel={() => setConnectMenu(null)}
-        />
-      )}
-    </div>
+            {connectMenu && (
+              <ConnectMenu
+                x={connectMenu.x}
+                y={connectMenu.y}
+                title={connectMenu.from === null ? 'Add to the board' : 'Add and connect'}
+                onPick={pickFromConnectMenu}
+                onCancel={closeConnectMenu}
+              />
+            )}
+
+            {selectionMenu && (
+              <SelectionMenu x={selectionMenu.x} y={selectionMenu.y} onClose={closeSelectionMenu} />
+            )}
+          </div>
+        </NodeCreatedContext.Provider>
+      </SelectionOpsContext.Provider>
+    </SelectionScope.Provider>
   );
 }
 

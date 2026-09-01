@@ -8,12 +8,16 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   size?: 'sm' | 'md';
 }
 
-/** A square button holding one lucide icon. The label is both title and aria-label. */
+/**
+ * A square button holding one lucide icon. The label is both title and
+ * aria-label, and `aria-pressed` is what the on state is drawn from — the
+ * styling and the semantics cannot drift apart because they are the same
+ * attribute.
+ */
 const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
   { label, icon, active = false, size = 'md', className = '', type = 'button', ...rest },
   ref,
 ) {
-  const box = size === 'sm' ? 'h-7 w-7' : 'h-8 w-8';
   return (
     <button
       ref={ref}
@@ -21,9 +25,9 @@ const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconB
       title={label}
       aria-label={label}
       aria-pressed={active ? true : undefined}
-      className={`inline-flex shrink-0 items-center justify-center rounded-[var(--radius)] border transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-50 ${box} ${
-        active ? 'border-line-strong bg-sunken text-ink' : 'border-transparent text-ink-muted hover:text-ink'
-      } ${className}`}
+      className={['karta-icon-btn', size === 'sm' ? 'karta-icon-btn--sm' : '', className]
+        .filter(Boolean)
+        .join(' ')}
       {...rest}
     >
       {icon}

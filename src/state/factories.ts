@@ -1,6 +1,7 @@
 import {
   DEFAULT_NODE_SIZE,
   DEFAULT_STATUS_NAMES,
+  DEFAULT_TEXT_SIZE,
   SCHEMA_VERSION,
   type BoardDoc,
   type BoardLinkNode,
@@ -14,7 +15,10 @@ import {
   type NodeBase,
   type NodeKind,
   type NoteNode,
+  type ShapeKind,
+  type ShapeNode,
   type StatusDef,
+  type TextNode,
 } from '@/domain/board';
 import { newId } from '@/lib/ids';
 import { nowIso } from '@/lib/format';
@@ -108,6 +112,33 @@ export function makeGroup(init: Init<GroupNode> = {}): GroupNode {
     z: init.z ?? -1, // frames paint behind the nodes they hold
     title: init.title ?? 'Group',
     padding: init.padding ?? 24,
+  };
+}
+
+/**
+ * Free text on the canvas. It starts empty and left-aligned: the node is
+ * created by clicking the board, and the caret has to land somewhere.
+ */
+export function makeText(init: Init<TextNode> = {}): TextNode {
+  return {
+    ...baseFields('text', init),
+    kind: 'text',
+    text: init.text ?? '',
+    fontSize: init.fontSize ?? DEFAULT_TEXT_SIZE,
+    align: init.align ?? 'left',
+    weight: init.weight ?? 'regular',
+  };
+}
+
+/** A draw.io shape. `fill`/`stroke` default to null — outline only, in --line-strong. */
+export function makeShape(init: Init<ShapeNode> & { shape: ShapeKind }): ShapeNode {
+  return {
+    ...baseFields('shape', init),
+    kind: 'shape',
+    shape: init.shape,
+    label: init.label ?? '',
+    fill: init.fill ?? null,
+    stroke: init.stroke ?? null,
   };
 }
 
