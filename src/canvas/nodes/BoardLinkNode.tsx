@@ -193,7 +193,7 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
             <button
               type="button"
               role="menuitem"
-              className="karta-tool-btn flex h-7 items-center gap-2 px-2 text-left text-[13px]"
+              className="karta-tool-btn flex h-7 items-center gap-2 px-2 text-left text-caption"
               onClick={() => {
                 setMenuOpen(false);
                 beginRename();
@@ -201,7 +201,7 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
             >
               <Pencil size={13} aria-hidden />
               <span className="flex-1">Rename</span>
-              <span className="text-[11px] text-ink-muted">F2</span>
+              <span className="text-meta text-ink-muted">F2</span>
             </button>
 
             <div className="karta-toolbar-row">
@@ -289,7 +289,7 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
           )}
         </div>
         {lod !== 'title' && (
-          <div className="text-[12px] text-ink-muted">
+          <div className="text-control text-ink-muted">
             {counts && counts.total > 0
               ? `${counts.done} of ${counts.total} done`
               : counts

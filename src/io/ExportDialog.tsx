@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Copy, Download, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, Copy, Download } from 'lucide-react';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
 import { AI_PROMPT_TEMPLATE, exportFull, exportPortable } from '@/io/exporter';
+import Button from '@/components/Button';
+import Dialog from '@/components/Dialog';
 
 type Tab = 'portable' | 'full' | 'prompt';
 
@@ -15,7 +17,7 @@ const TABS: { id: Tab; label: string; hint: string }[] = [
 function slug(title: string): string {
   const cleaned = title
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
@@ -48,17 +50,7 @@ export default function ExportDialog(): JSX.Element {
   const [copied, setCopied] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
 
-  const close = useCallback(() => setDialog(null), [setDialog]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      close();
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [close]);
+  const close = (): void => setDialog(null);
 
   const content = useMemo(() => {
     if (tab === 'prompt') return AI_PROMPT_TEMPLATE;
@@ -93,87 +85,53 @@ export default function ExportDialog(): JSX.Element {
   const active = TABS.find((t) => t.id === tab) ?? TABS[0];
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Export"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) close();
-      }}
-    >
-      <div className="flex max-h-[86vh] w-full max-w-[760px] flex-col rounded border border-line bg-raised text-ink">
-        <header className="flex items-center justify-between border-b border-line px-4 py-3">
-          <h2 className="font-condensed text-[17px] font-semibold">Export</h2>
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Close"
-            className="rounded p-1 text-ink-muted hover:text-ink"
-          >
-            <X size={16} />
-          </button>
-        </header>
-
-        <div className="flex-1 overflow-y-auto px-4 py-3">
-          <div role="tablist" aria-label="Export format" className="flex items-center gap-1">
-            {TABS.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === entry.id}
-                onClick={() => setTab(entry.id)}
-                className={`rounded border px-2 py-1 text-[13px] ${
-                  tab === entry.id
-                    ? 'border-line-strong bg-sunken text-ink'
-                    : 'border-transparent text-ink-muted hover:text-ink'
-                }`}
-              >
-                {entry.label}
-              </button>
-            ))}
-          </div>
-
-          <p className="mt-2 text-[13px] text-ink-muted">{active.hint}</p>
-
-          <textarea
-            ref={box}
-            readOnly
-            spellCheck={false}
-            value={doc === null && tab !== 'prompt' ? 'Open a board first.' : content}
-            aria-label={`${active.label} export`}
-            className="mt-2 h-[320px] w-full resize-y rounded border border-line bg-canvas px-2 py-2 font-mono text-[12.5px] leading-[1.5] text-ink outline-none focus:border-[var(--focus)]"
-          />
-        </div>
-
-        <footer className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
-          <p className="min-w-0 flex-1 truncate text-[13px] text-ink-muted">
+    <Dialog
+      title="Export"
+      width="lg"
+      onClose={close}
+      footer={
+        <>
+          <p className="min-w-0 flex-1 truncate text-caption text-ink-muted">
             {content.length > 0 ? `${content.length.toLocaleString('en-GB')} characters` : ''}
           </p>
-          <div className="flex shrink-0 items-center gap-2">
-            {tab !== 'prompt' && doc !== null ? (
-              <button
-                type="button"
-                onClick={() => download(`${slug(doc.title)}-${tab}.json`, content)}
-                className="flex items-center gap-1.5 rounded border border-line px-2 py-1 text-[13px] hover:bg-sunken"
-              >
-                <Download size={13} />
-                Download .json
-              </button>
-            ) : null}
-            <button
-              type="button"
-              disabled={content.length === 0}
-              onClick={() => void copy()}
-              className="flex items-center gap-1.5 rounded border border-[var(--focus)] bg-[var(--focus)] px-3 py-1 text-[13px] text-white disabled:opacity-40"
-            >
-              {copied ? <Check size={14} /> : <Copy size={13} />}
-              {copied ? 'Copied' : 'Copy'}
-            </button>
-          </div>
-        </footer>
+          {tab !== 'prompt' && doc !== null ? (
+            <Button onClick={() => download(`${slug(doc.title)}-${tab}.json`, content)}>
+              <Download size={14} />
+              Download .json
+            </Button>
+          ) : null}
+          <Button variant="primary" disabled={content.length === 0} onClick={() => void copy()}>
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? 'Copied' : 'Copy'}
+          </Button>
+        </>
+      }
+    >
+      <div role="tablist" aria-label="Export format" className="flex flex-wrap items-center gap-1">
+        {TABS.map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === entry.id}
+            onClick={() => setTab(entry.id)}
+            className="karta-toggle"
+          >
+            {entry.label}
+          </button>
+        ))}
       </div>
-    </div>
+
+      <p className="karta-caption mt-2">{active.hint}</p>
+
+      <textarea
+        ref={box}
+        readOnly
+        spellCheck={false}
+        value={doc === null && tab !== 'prompt' ? 'Open a board first.' : content}
+        aria-label={`${active.label} export`}
+        className="karta-field karta-field--mono mt-2 h-[320px] bg-canvas"
+      />
+    </Dialog>
   );
 }

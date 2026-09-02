@@ -145,7 +145,7 @@ function Frame({ children }: { children: ReactNode }): JSX.Element {
   return (
     <div className="grid h-screen w-screen place-items-center bg-canvas px-6 text-ink">
       <div className="flex w-full max-w-[42ch] flex-col items-start gap-3">
-        <h1 className="font-condensed text-[22px] font-semibold">Karta</h1>
+        <h1 className="text-display">Karta</h1>
         {children}
       </div>
     </div>
@@ -179,8 +179,8 @@ function NoBoardsScreen(): JSX.Element {
 
   return (
     <Frame>
-      <p className="text-[15px] text-ink">You have no boards.</p>
-      {failure ? <p className="text-[14px] text-[var(--temper-copper)]">{failure}</p> : null}
+      <p className="text-body text-ink">You have no boards.</p>
+      {failure ? <p className="text-ui text-danger">{failure}</p> : null}
       <div className="flex items-center gap-2">
         <Button
           variant="primary"
@@ -207,7 +207,7 @@ function NoBoardsScreen(): JSX.Element {
 function BootScreen({ message }: { message: string }): JSX.Element {
   return (
     <Frame>
-      <p className="text-[15px] text-ink-muted" aria-live="polite">
+      <p className="text-body text-ink-muted" aria-live="polite">
         {message}
       </p>
     </Frame>
@@ -217,8 +217,8 @@ function BootScreen({ message }: { message: string }): JSX.Element {
 function ErrorScreen({ message, onRetry }: { message: string; onRetry(): void }): JSX.Element {
   return (
     <Frame>
-      <p className="text-[15px] text-ink">Karta could not start.</p>
-      <p className="text-[14px] text-ink-muted">{message}</p>
+      <p className="text-body text-ink">Karta could not start.</p>
+      <p className="text-ui text-ink-muted">{message}</p>
       <Button variant="primary" onClick={onRetry}>
         Try again
       </Button>

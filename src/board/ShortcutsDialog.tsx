@@ -39,7 +39,7 @@ export default function ShortcutsDialog(): JSX.Element {
 
   return (
     <Dialog title="Keyboard" width="md" onClose={() => setDialog(null)}>
-      <table className="w-full border-collapse text-[14px]">
+      <table className="w-full border-collapse text-ui">
         <tbody>
           {SHORTCUTS.map((row) => (
             <tr key={row.action} className="border-b border-line last:border-b-0">

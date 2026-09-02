@@ -9,6 +9,8 @@ import { CanvasProvider } from '@/canvas/CanvasContext';
 import Canvas from '@/canvas/Canvas';
 import KanbanView from '@/kanban/KanbanView';
 import CardEditorPanel from '@/card/CardEditorPanel';
+import LabelEditor from '@/card/LabelEditor';
+import StatusEditor from '@/kanban/StatusEditor';
 import ImportDialog from '@/io/ImportDialog';
 import ExportDialog from '@/io/ExportDialog';
 import TopBar from '@/board/TopBar';
@@ -49,7 +51,7 @@ export default function BoardShell(): JSX.Element {
           {loading || (!doc && error === null) ? (
             // No document and no error yet means the load has not started; the
             // shell must not accuse the board of failing before it was asked for.
-            <p className="grid h-full place-items-center text-[14px] text-ink-muted">Loading the board…</p>
+            <p className="grid h-full place-items-center text-ui text-ink-muted">Loading the board…</p>
           ) : !doc ? (
             <BoardError message={error} />
           ) : walRecovery ? (
@@ -73,6 +75,11 @@ export default function BoardShell(): JSX.Element {
         {dialog === 'search' ? <SearchDialog /> : null}
         {dialog === 'shortcuts' ? <ShortcutsDialog /> : null}
         {dialog === 'snapshots' ? <SnapshotsDialog /> : null}
+        {/* Board-level lists, drawn here rather than inside the panel or popover
+            that asked for them: a dialog nested in a transformed ancestor is
+            positioned against it, and clipped to it. */}
+        {dialog === 'labels' ? <LabelEditor /> : null}
+        {dialog === 'statuses' ? <StatusEditor /> : null}
 
         <ConflictDialog />
         <WalRecoveryPrompt />
@@ -191,7 +198,7 @@ function NewerVersionChip(): JSX.Element | null {
   if (!newerAvailable) return null;
 
   return (
-    <div className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-[var(--radius)] border border-line bg-raised px-2 py-1.5 text-[13px] text-ink-muted">
+    <div className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-md border border-line bg-raised px-2 py-1.5 text-caption text-ink-muted shadow-overlay">
       <RefreshCw size={14} aria-hidden />
       <span>A newer version of this board exists.</span>
       <Button size="sm" disabled={saveState === 'saving'} onClick={() => void save(true)}>
@@ -224,11 +231,11 @@ function WalRecoveryPrompt(): JSX.Element | null {
         </>
       }
     >
-      <p className="text-[14px] text-ink-muted">
+      <p className="text-ui text-ink-muted">
         This browser holds changes to this board from {formatRelative(walRecovery.savedAt)} that never reached
         the server — the tab was probably closed, or the connection dropped, before they could be saved.
       </p>
-      <p className="mt-3 text-[14px] text-ink-muted">
+      <p className="mt-3 text-ui text-ink-muted">
         Restoring puts them back and saves them. Discarding keeps the version on the server.
       </p>
     </Dialog>

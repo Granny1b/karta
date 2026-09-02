@@ -234,7 +234,7 @@
 
 .karta-due-overdue {
   background: color-mix(in srgb, var(--temper-copper) 18%, var(--surface-raised));
-  color: var(--temper-copper);
+  color: var(--danger);
 }
 
 .karta-due-today {
@@ -364,6 +364,19 @@
   flex-direction: column;
 }
 
+/*
+ * The surface every `NodeToolbar` wears — the board tile's settings, the
+ * shape's colours, the text's type, the button on the selection. One box for
+ * all four, so a panel that floats beside a node is the same panel wherever
+ * it floats; what each holds sets its own padding.
+ */
+.karta-node-toolbar {
+  border: var(--hairline);
+  border-radius: var(--karta-r-surface);
+  background: var(--surface-raised);
+  box-shadow: var(--karta-overlay-shadow);
+}
+
 /* --- small controls ----------------------------------------------------- */
 
 .karta-tool-btn {
@@ -399,7 +412,7 @@
 }
 
 .karta-danger:hover {
-  color: var(--temper-copper);
+  color: var(--danger);
 }
 
 .karta-swatch {

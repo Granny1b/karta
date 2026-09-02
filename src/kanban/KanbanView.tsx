@@ -7,9 +7,11 @@ import { makeCard } from '@/state/factories';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
 import { cardNodes, matchesFilter } from '@/state/selectors';
+import { cx } from '@/canvas/cx';
+import Button from '@/components/Button';
+import IconButton from '@/components/IconButton';
 import FilterBar, { NoResults } from '@/kanban/FilterBar';
 import KanbanCard from '@/kanban/KanbanCard';
-import StatusEditor from '@/kanban/StatusEditor';
 import { projectNestedCard, useNestedCards } from '@/kanban/includeNested';
 
 /**
@@ -44,10 +46,10 @@ export default function KanbanView(): JSX.Element {
   const updateNode = useBoardStore((s) => s.updateNode);
   const addNode = useBoardStore((s) => s.addNode);
   const openEditor = useUiStore((s) => s.openEditor);
+  const setDialog = useUiStore((s) => s.setDialog);
   const filter = useUiStore((s) => s.filter);
   const filterActive = useUiStore((s) => s.filterActive());
 
-  const [statusEditorOpen, setStatusEditorOpen] = useState(false);
   const [includeNested, setIncludeNested] = useState(false);
   const [dragCardId, setDragCardId] = useState<Id | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
@@ -181,31 +183,24 @@ export default function KanbanView(): JSX.Element {
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2">
         <FilterBar />
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-[13px] text-ink-muted">
+          <label className="flex items-center gap-2 text-caption text-ink-muted">
             <input
               type="checkbox"
               checked={includeNested}
               onChange={(e) => setIncludeNested(e.target.checked)}
-              className="h-3.5 w-3.5 accent-[var(--focus)]"
+              className="karta-check"
             />
             Include nested boards
           </label>
-          <button
-            type="button"
-            onClick={() => setStatusEditorOpen(true)}
-            className="flex items-center gap-1.5 rounded border border-line px-2 py-1 text-[13px] text-ink-muted hover:text-ink"
-          >
+          <Button size="sm" onClick={() => setDialog('statuses')}>
             <SlidersHorizontal size={13} />
             Edit statuses
-          </button>
+          </Button>
         </div>
       </header>
 
       {nested.loading || nested.error ? (
-        <p
-          className="px-4 py-1 text-[13px]"
-          style={{ color: nested.error ? 'var(--temper-copper)' : 'var(--ink-muted)' }}
-        >
+        <p className={cx('px-4 py-1 text-caption', nested.error ? 'text-danger' : 'text-ink-muted')}>
           {nested.error ?? 'Loading the nested boards…'}
         </p>
       ) : null}
@@ -235,30 +230,27 @@ export default function KanbanView(): JSX.Element {
                 >
                   <div className="mb-2 flex items-center gap-2">
                     <span
-                      className="h-3.5 w-1 shrink-0 rounded-sm"
+                      className="h-3.5 w-1 shrink-0 rounded-xs"
                       style={{ backgroundColor: column.color ? colorValue(column.color) : 'var(--line-strong)' }}
                       aria-hidden
                     />
-                    <h2 className="min-w-0 flex-1 truncate font-condensed text-[15px] font-semibold">
-                      {column.name}
-                    </h2>
-                    <span className="text-[12px] text-ink-muted">{cards.length + borrowed.length}</span>
-                    <button
-                      type="button"
+                    <h2 className="min-w-0 flex-1 truncate text-body">{column.name}</h2>
+                    <span className="text-control tabular-nums text-ink-muted">{cards.length + borrowed.length}</span>
+                    <IconButton
+                      size="sm"
+                      label={`Add a card to ${column.name}`}
+                      icon={<Plus size={14} />}
                       onClick={() => addCardTo(column)}
-                      aria-label={`Add a card to ${column.name}`}
-                      className="rounded p-0.5 text-ink-muted hover:text-ink"
-                    >
-                      <Plus size={14} />
-                    </button>
+                    />
                   </div>
 
                   <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-8">
                     {empty ? (
                       <div
-                        className={`rounded border border-dashed px-3 py-6 text-center text-[13px] text-ink-muted ${
-                          dropTarget?.column === column.key ? 'border-[var(--focus)]' : 'border-line'
-                        }`}
+                        className={cx(
+                          'rounded-md border border-dashed px-3 py-6 text-center text-caption text-ink-muted',
+                          dropTarget?.column === column.key ? 'border-focus' : 'border-line-strong',
+                        )}
                       >
                         {column.name}
                       </div>
@@ -308,15 +300,13 @@ export default function KanbanView(): JSX.Element {
           </div>
         </div>
       )}
-
-      {statusEditorOpen ? <StatusEditor onClose={() => setStatusEditorOpen(false)} /> : null}
     </div>
   );
 }
 
 function DropLine({ active }: { active: boolean }): JSX.Element | null {
   if (!active) return null;
-  return <div className="h-0.5 shrink-0 rounded" style={{ backgroundColor: 'var(--focus)' }} aria-hidden />;
+  return <div className="h-0.5 shrink-0 rounded-full bg-focus" aria-hidden />;
 }
 
 /** A canvas home for a card created in the column view: below everything else. */

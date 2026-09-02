@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import type { Id } from '@/domain/board';
 import { colorValue } from '@/lib/colors';
-import LabelEditor from '@/card/LabelEditor';
+import { cx } from '@/canvas/cx';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
 
@@ -16,8 +16,8 @@ export default function FilterBar(): JSX.Element {
   const filter = useUiStore((s) => s.filter);
   const setFilter = useUiStore((s) => s.setFilter);
   const clearFilter = useUiStore((s) => s.clearFilter);
+  const setDialog = useUiStore((s) => s.setDialog);
   const active = useUiStore((s) => s.filterActive());
-  const [labelEditorOpen, setLabelEditorOpen] = useState(false);
 
   const labels = doc?.labels ?? [];
   const statuses = doc ? [...doc.statuses].sort((a, b) => a.order - b.order) : [];
@@ -26,9 +26,13 @@ export default function FilterBar(): JSX.Element {
     list.includes(id) ? list.filter((value) => value !== id) : [...list, id];
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       <div className="relative">
-        <Search size={14} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-ink-muted" />
+        <Search
+          size={14}
+          className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-ink-muted"
+          aria-hidden
+        />
         <input
           value={filter.text}
           placeholder="Filter cards"
@@ -40,7 +44,7 @@ export default function FilterBar(): JSX.Element {
               setFilter({ text: '' });
             }
           }}
-          className="w-44 rounded border border-line bg-raised py-1 pl-7 pr-2 text-[13px] text-ink outline-none placeholder:text-ink-muted focus:border-[var(--focus)]"
+          className="karta-field karta-field--sm w-44 pl-7"
         />
       </div>
 
@@ -48,11 +52,12 @@ export default function FilterBar(): JSX.Element {
         {/* Where labels are used is also where a stale one is noticed. */}
         <button
           type="button"
-          onClick={() => setLabelEditorOpen(true)}
-          className="mb-1 w-full border-b border-line px-2 pb-1.5 pt-1 text-left text-[12px] text-ink-muted hover:text-ink"
+          onClick={() => setDialog('labels')}
+          className="karta-menu-item karta-menu-item--muted"
         >
           Manage labels
         </button>
+        <hr className="karta-menu-rule" />
         {labels.map((label) => (
           <Option
             key={label.id}
@@ -89,17 +94,11 @@ export default function FilterBar(): JSX.Element {
       </Chip>
 
       {active ? (
-        <button
-          type="button"
-          onClick={clearFilter}
-          className="flex items-center gap-1 rounded border border-line px-2 py-1 text-[13px] text-ink-muted hover:text-ink"
-        >
+        <button type="button" onClick={clearFilter} className="karta-toggle">
           <X size={13} />
           Clear the filter
         </button>
       ) : null}
-
-      {labelEditorOpen ? <LabelEditor onClose={() => setLabelEditorOpen(false)} /> : null}
     </div>
   );
 }
@@ -108,7 +107,7 @@ export default function FilterBar(): JSX.Element {
 export function NoResults(): JSX.Element {
   const clearFilter = useUiStore((s) => s.clearFilter);
   return (
-    <p className="px-1 py-6 text-[15px] text-ink-muted">
+    <p className="px-1 py-6 text-body text-ink-muted">
       Nothing matches.{' '}
       <button type="button" onClick={clearFilter} className="underline underline-offset-2 hover:no-underline">
         Clear the filter.
@@ -127,14 +126,7 @@ function Chip({
   children: ReactNode;
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={`rounded border px-2 py-1 text-[13px] ${
-        active ? 'border-line-strong text-ink' : 'border-line text-ink-muted hover:text-ink'
-      }`}
-    >
+    <button type="button" aria-pressed={active} onClick={onClick} className="karta-toggle">
       {children}
     </button>
   );
@@ -178,10 +170,9 @@ function Dropdown({
         type="button"
         disabled={disabled}
         aria-expanded={open}
+        aria-haspopup="menu"
         onClick={() => setOpen((value) => !value)}
-        className={`flex items-center gap-1 rounded border px-2 py-1 text-[13px] disabled:opacity-50 ${
-          count > 0 ? 'border-line-strong text-ink' : 'border-line text-ink-muted hover:text-ink'
-        }`}
+        className={cx('karta-toggle', count > 0 && 'is-on')}
       >
         {label}
         {count > 0 ? ` (${count})` : ''}
@@ -189,7 +180,7 @@ function Dropdown({
       </button>
 
       {open ? (
-        <div className="absolute left-0 top-full z-40 mt-1 max-h-64 w-52 overflow-y-auto rounded border border-line bg-raised py-1">
+        <div role="menu" className="karta-menu absolute left-0 top-full z-40 mt-1 max-h-64 w-56 overflow-y-auto">
           {children}
         </div>
       ) : null}
@@ -209,13 +200,8 @@ function Option({
   children: ReactNode;
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={checked}
-      className="flex w-full items-center gap-2 px-2 py-1 text-left text-[13px] text-ink hover:bg-sunken"
-    >
-      <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: swatch }} />
+    <button type="button" role="menuitemcheckbox" aria-checked={checked} onClick={onClick} className="karta-menu-item">
+      <span className="h-2.5 w-2.5 shrink-0 rounded-xs" style={{ backgroundColor: swatch }} aria-hidden />
       <span className="min-w-0 flex-1 truncate">{children}</span>
       {checked ? <Check size={13} className="shrink-0" /> : null}
     </button>

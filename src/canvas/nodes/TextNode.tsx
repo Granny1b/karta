@@ -133,8 +133,7 @@ function TextToolbar({ text }: { text: TextNode }): JSX.Element | null {
       isVisible
       position={Position.Bottom}
       offset={12}
-      className="nodrag nopan nowheel flex flex-col gap-1.5 border border-line bg-raised p-2"
-      style={{ borderRadius: 'var(--karta-r-surface)', boxShadow: 'var(--karta-overlay-shadow)' }}
+      className="karta-node-toolbar nodrag nopan nowheel flex flex-col gap-1.5 p-2"
       role="group"
       aria-label="Text"
     >

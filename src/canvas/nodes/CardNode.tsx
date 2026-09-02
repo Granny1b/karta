@@ -100,18 +100,18 @@ function CardNodeView({ data, selected, dragging }: NodeProps<CardFlowNode>): JS
                 src={cover}
                 alt=""
                 draggable={false}
-                className="h-14 w-full shrink-0 rounded-[3px] object-cover"
+                className="h-14 w-full shrink-0 rounded-xs object-cover"
               />
             )}
             <div className="karta-card-title line-clamp-2">{title}</div>
             {card.body.trim().length > 0 && (
-              <p className="line-clamp-2 text-[12px] leading-snug text-ink-muted">
+              <p className="line-clamp-2 text-control leading-snug text-ink-muted">
                 {previewText(card.body, 160)}
               </p>
             )}
             <div className="mt-auto flex min-h-[16px] flex-wrap items-center gap-1.5 pt-1">
               {progress.total > 0 && (
-                <span className="flex items-center gap-1 text-[11px] tabular-nums text-ink-muted">
+                <span className="flex items-center gap-1 text-meta tabular-nums text-ink-muted">
                   <ProgressRing done={progress.done} total={progress.total} color={accent} />
                   {progress.done}/{progress.total}
                 </span>
@@ -132,7 +132,7 @@ function CardNodeView({ data, selected, dragging }: NodeProps<CardFlowNode>): JS
                 src={cover}
                 alt=""
                 draggable={false}
-                className="h-9 w-9 shrink-0 rounded-[3px] object-cover"
+                className="h-9 w-9 shrink-0 rounded-xs object-cover"
               />
             )}
             <div className="karta-card-title line-clamp-3 min-w-0 flex-1">{title}</div>

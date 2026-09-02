@@ -311,6 +311,12 @@
     opacity: 0.45;
   }
 
+  /* The bin: it warms to the destructive ink on the way in, and nowhere else. */
+  .karta-icon-btn--danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger) 10%, var(--surface-raised));
+    color: var(--danger);
+  }
+
   /* --- tooltip ----------------------------------------------------------- */
 
   .karta-tip {
@@ -558,6 +564,450 @@
 
   .karta-emptystate-action {
     margin-top: var(--space-2);
+  }
+
+  /* --- fields ------------------------------------------------------------ */
+
+  /*
+   * A text field is the same box as a button: one visible edge, the control
+   * height, the control type size. Focus is the edge turning to the focus
+   * colour and thickening by a pixel — a ring drawn on the field rather than
+   * around it, so a stack of fields in a panel does not gain a halo each.
+   */
+  .karta-field {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: var(--control-h-md);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-sm);
+    background: var(--surface-raised);
+    color: var(--ink);
+    font-size: var(--text-ui);
+    line-height: var(--leading-body);
+    transition:
+      border-color var(--dur-fast) linear,
+      box-shadow var(--dur-fast) linear;
+  }
+
+  .karta-field::placeholder {
+    color: var(--ink-muted);
+    opacity: 1;
+  }
+
+  .karta-field:focus,
+  .karta-field:focus-visible {
+    outline: none;
+    border-color: var(--focus);
+    box-shadow: inset 0 0 0 1px var(--focus);
+  }
+
+  .karta-field:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  .karta-field--sm {
+    height: var(--control-h-sm);
+    font-size: var(--text-caption);
+  }
+
+  /* A field that is a line of text until it is pointed at: names in a list,
+     the title in the editor's header, a checklist item. */
+  .karta-field--quiet {
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .karta-field--quiet:hover:not(:disabled):not(:focus) {
+    border-color: var(--line);
+  }
+
+  .karta-field--mono {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+  }
+
+  /* `:where()` keeps these at the class's own weight, so a height a caller
+     sets on one textarea still wins. */
+  .karta-field:where(textarea) {
+    height: auto;
+    padding-block: var(--space-2);
+    resize: vertical;
+  }
+
+  .karta-field:where(select) {
+    padding-right: var(--space-6);
+    cursor: pointer;
+  }
+
+  /* One box, one colour, for every tick and radio in the product. */
+  .karta-check {
+    flex: none;
+    width: var(--space-4);
+    height: var(--space-4);
+    margin: 0;
+    accent-color: var(--focus);
+    cursor: pointer;
+  }
+
+  .karta-check:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  /* The name above a field, or beside a group of them: plain sans, muted,
+     one step below the control. Not a heading (8.2). */
+  .karta-caption {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: var(--text-caption);
+    line-height: var(--leading-snug);
+    color: var(--ink-muted);
+  }
+
+  /* --- toggle chips ------------------------------------------------------- */
+
+  /*
+   * A filter, a label on a card, a tab: something that is on or off. Off is a
+   * button with muted text; on is the same pressed well the icon button uses,
+   * so "chosen" looks the same whether it is a chip or an icon.
+   */
+  .karta-toggle {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--control-h-sm);
+    padding-inline: var(--space-2);
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-sm);
+    background: var(--surface-raised);
+    color: var(--ink-muted);
+    font-size: var(--text-caption);
+    line-height: var(--leading-flat);
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-fast) linear,
+      border-color var(--dur-fast) linear,
+      color var(--dur-fast) linear;
+  }
+
+  .karta-toggle:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--ink);
+  }
+
+  .karta-toggle[aria-pressed='true'],
+  .karta-toggle[aria-selected='true'],
+  .karta-toggle[aria-expanded='true'],
+  .karta-toggle.is-on {
+    border-color: var(--ink-muted);
+    background: var(--surface-sunken);
+    color: var(--ink);
+  }
+
+  .karta-toggle:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  /* The one that makes a new chip rather than choosing one. */
+  .karta-toggle--dashed {
+    border-style: dashed;
+  }
+
+  /* --- menus -------------------------------------------------------------- */
+
+  /*
+   * A popover list: the account menu, a filter's options. It floats, so it is
+   * the one kind of surface that carries the overlay shadow, and its rows are
+   * the palette's rows — the same height and type as every list in the app.
+   */
+  .karta-menu {
+    min-width: 176px;
+    padding: var(--space-1);
+    border: var(--hairline);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-overlay);
+    color: var(--ink);
+  }
+
+  .karta-menu-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--control-h-sm);
+    padding-inline: var(--space-2);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--ink);
+    font-size: var(--text-caption);
+    line-height: var(--leading-flat);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-fast) linear,
+      color var(--dur-fast) linear;
+  }
+
+  .karta-menu-item:hover:not(:disabled),
+  .karta-menu-item:focus-visible {
+    background: var(--surface-hover);
+    color: var(--ink);
+  }
+
+  .karta-menu-item--muted {
+    color: var(--ink-muted);
+  }
+
+  .karta-menu-item:disabled {
+    color: var(--ink-muted);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .karta-menu-rule {
+    height: 1px;
+    margin: var(--space-1) 0;
+    border: none;
+    background: var(--line);
+  }
+
+  .karta-menu-note {
+    margin: 0;
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--text-control);
+    line-height: var(--leading-snug);
+    color: var(--ink-muted);
+  }
+
+  /* --- side panels -------------------------------------------------------- */
+
+  /*
+   * The board tree and the card editor (8.3): both open over the canvas, so
+   * both carry the overlay shadow that says "over" rather than "beside", and
+   * both are the modal's head, body and foot stood on their side.
+   */
+  .karta-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-overlay);
+    color: var(--ink);
+  }
+
+  .karta-panel-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--topbar-h);
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+    border-bottom: var(--hairline);
+  }
+
+  .karta-panel-body {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--space-5);
+    padding: var(--space-4);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .karta-panel-foot {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+    border-top: var(--hairline);
+  }
+
+  /* A named group of controls inside a panel or dialog body. */
+  .karta-fieldset {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .karta-fieldset-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  /* --- growing text ------------------------------------------------------- */
+
+  /*
+   * A textarea that is exactly as tall as what it holds. The wrapper repeats
+   * the value in a hidden pseudo-element laid over the same grid cell, so the
+   * cell — and the field with it — grows and shrinks with the text, with no
+   * measuring and no script: a wrap caused by a narrower panel or a webfont
+   * landing is answered by layout, which is the thing that caused it.
+   */
+  .karta-grow {
+    display: grid;
+    min-width: 0;
+  }
+
+  .karta-grow::after {
+    content: attr(data-value) ' ';
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .karta-grow > textarea {
+    resize: none;
+    overflow: hidden;
+  }
+
+  .karta-grow > textarea,
+  .karta-grow::after {
+    grid-area: 1 / 1 / 2 / 2;
+    min-width: 0;
+    box-sizing: border-box;
+    font: inherit;
+    line-height: inherit;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* --- checklist ---------------------------------------------------------- */
+
+  /*
+   * One item is a tick, its words and, when pointed at, a grip and a cross.
+   * The words wrap: an item is read, not scrolled through a slot. The tick and
+   * the two tools are each one line of the item's own text tall, so they sit
+   * on the first line of it however many lines follow.
+   */
+  .karta-checklist {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .karta-checklist-row {
+    --checklist-line: calc(var(--text-ui) * var(--leading-body));
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-1);
+    /* The grip hangs in the panel's gutter, so the ticks stand on the same
+       left edge as the caption above them and the field below them. */
+    margin-left: calc(-1 * var(--space-4));
+    padding-block: 1px;
+    border-block: 1px solid transparent;
+  }
+
+  .karta-checklist-row[data-drop='before'] {
+    border-top-color: var(--focus);
+  }
+
+  .karta-checklist-row[data-drop='after'] {
+    border-bottom-color: var(--focus);
+  }
+
+  .karta-checklist-row.is-dragging {
+    opacity: 0.4;
+  }
+
+  .karta-checklist-aside {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--space-5);
+    height: calc(var(--checklist-line) + var(--space-2));
+  }
+
+  /* The gutter is one step wide, less the gap that follows the grip. */
+  .karta-checklist-tool--grip {
+    width: calc(var(--space-4) - var(--space-1));
+  }
+
+  .karta-checklist-tool {
+    border-radius: var(--radius-xs);
+    background: transparent;
+    color: var(--ink-muted);
+    opacity: 0;
+    cursor: pointer;
+    transition:
+      opacity var(--dur-fast) linear,
+      color var(--dur-fast) linear;
+  }
+
+  .karta-checklist-tool--grip {
+    cursor: grab;
+  }
+
+  .karta-checklist-row:hover .karta-checklist-tool,
+  .karta-checklist-row:focus-within .karta-checklist-tool,
+  .karta-checklist-tool:focus-visible {
+    opacity: 1;
+  }
+
+  .karta-checklist-tool:hover {
+    color: var(--ink);
+  }
+
+  .karta-checklist-tool:disabled {
+    display: none;
+  }
+
+  .karta-checklist-text {
+    flex: 1 1 auto;
+    font-size: var(--text-ui);
+    line-height: var(--leading-body);
+    color: var(--ink);
+  }
+
+  .karta-checklist-text > textarea,
+  .karta-checklist-text::after {
+    padding: calc(var(--space-1) - 1px) var(--space-1);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+  }
+
+  .karta-checklist-text > textarea {
+    display: block;
+    width: 100%;
+    background: transparent;
+    color: inherit;
+    transition:
+      border-color var(--dur-fast) linear,
+      box-shadow var(--dur-fast) linear;
+  }
+
+  .karta-checklist-text > textarea:hover:not(:disabled):not(:focus) {
+    border-color: var(--line);
+  }
+
+  .karta-checklist-text > textarea:focus,
+  .karta-checklist-text > textarea:focus-visible {
+    outline: none;
+    border-color: var(--focus);
+    box-shadow: inset 0 0 0 1px var(--focus);
+  }
+
+  .karta-checklist-row.is-done .karta-checklist-text {
+    color: var(--ink-muted);
+  }
+
+  .karta-checklist-row.is-done .karta-checklist-text > textarea {
+    text-decoration: line-through;
+  }
+
+  .karta-checklist-text > textarea:disabled {
+    cursor: default;
   }
 
   /* --- keys --------------------------------------------------------------- */

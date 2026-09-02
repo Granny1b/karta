@@ -179,11 +179,11 @@ export default function SearchDialog(): JSX.Element {
           placeholder="Board titles, and anything on this board"
           aria-label="Search boards and cards"
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full rounded-[var(--radius)] border border-line bg-raised px-2 py-1.5 text-[15px] text-ink outline-none placeholder:text-ink-muted focus:border-[var(--focus)]"
+          className="karta-field text-body"
         />
 
         {hits.length === 0 ? (
-          <p className="py-6 text-center text-[14px] text-ink-muted">Nothing matches.</p>
+          <p className="py-6 text-center text-ui text-ink-muted">Nothing matches.</p>
         ) : (
           <ul ref={listRef} className="mt-2 flex max-h-[46vh] flex-col overflow-y-auto">
             {hits.map((hit, i) => (
@@ -194,7 +194,7 @@ export default function SearchDialog(): JSX.Element {
                   tabIndex={-1}
                   onMouseMove={() => setCursor(i)}
                   onClick={() => activate(hit)}
-                  className={`flex w-full items-center gap-2 rounded-[var(--radius)] px-2 py-1.5 text-left ${
+                  className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left ${
                     i === cursor ? 'bg-sunken' : ''
                   }`}
                 >
@@ -202,8 +202,8 @@ export default function SearchDialog(): JSX.Element {
                     {hit.kind === 'board' ? <LayoutGrid size={14} /> : <Square size={14} />}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[14px] text-ink">{hit.title}</span>
-                    <span className="block truncate text-[12px] text-ink-muted">{hit.detail}</span>
+                    <span className="block truncate text-ui text-ink">{hit.title}</span>
+                    <span className="block truncate text-control text-ink-muted">{hit.detail}</span>
                   </span>
                 </button>
               </li>
@@ -211,7 +211,7 @@ export default function SearchDialog(): JSX.Element {
           </ul>
         )}
 
-        <p className="mt-2 text-[12px] text-ink-muted">
+        <p className="mt-2 text-control text-ink-muted">
           <kbd className="karta-kbd">↑</kbd> <kbd className="karta-kbd">↓</kbd> to move,{' '}
           <kbd className="karta-kbd">Enter</kbd> to open. Card bodies are searched on the open board only.
         </p>

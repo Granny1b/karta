@@ -44,7 +44,7 @@ function ImageNodeView({ data, selected, dragging }: NodeProps<ImageFlowNode>): 
             )}
           </div>
           {showCaption && (
-            <div className="shrink-0 truncate border-t border-line px-2 py-1 text-[11px] text-ink-muted">
+            <div className="shrink-0 truncate border-t border-line px-2 py-1 text-meta text-ink-muted">
               {caption}
             </div>
           )}

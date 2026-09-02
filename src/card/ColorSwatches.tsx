@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import type { ColorToken, HexColor } from '@/domain/board';
 import { TEMPER_TOKENS, colorValue, isColorToken, isHexColor } from '@/lib/colors';
+import { cx } from '@/canvas/cx';
 
 export type ColorValue = ColorToken | HexColor | null;
 
@@ -13,7 +14,15 @@ export interface ColorSwatchesProps {
   disabled?: boolean;
 }
 
-const FALLBACK_HEX = '#64748b'; // --temper-slate, the uncoloured default
+/** `--temper-slate`, the uncoloured default, as the native picker's opening value. */
+const FALLBACK_HEX = '#64748b';
+
+/** Every cell in the row is this box: the seven colours, the picker, the clear. */
+const CELL =
+  'grid h-6 w-6 shrink-0 place-items-center rounded border transition-[outline-color,border-color,color] duration-fast ease-linear disabled:cursor-not-allowed disabled:opacity-45';
+
+/** The chosen one wears the same ring a swatch on the canvas does. */
+const ON = 'outline outline-1 outline-offset-1 outline-focus';
 
 /**
  * The seven tempering colours (spec 8.1) plus a custom `#RRGGBB` picker that
@@ -32,7 +41,7 @@ export default function ColorSwatches({ value, onChange, tokensOnly, disabled }:
   const customActive = isHexColor(value);
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Colour">
       {TEMPER_TOKENS.map((token) => {
         const active = value === token;
         return (
@@ -44,7 +53,7 @@ export default function ColorSwatches({ value, onChange, tokensOnly, disabled }:
             aria-label={token}
             aria-pressed={active}
             onClick={() => onChange(active ? null : token)}
-            className="grid h-6 w-6 place-items-center rounded border border-line disabled:opacity-50"
+            className={cx(CELL, 'border-line', active && ON)}
             style={{ backgroundColor: colorValue(token) }}
           >
             {active ? <Check size={13} strokeWidth={3} className="text-white" /> : null}
@@ -54,7 +63,7 @@ export default function ColorSwatches({ value, onChange, tokensOnly, disabled }:
 
       {tokensOnly ? null : (
         <label
-          className="relative grid h-6 w-6 place-items-center overflow-hidden rounded border border-line"
+          className={cx(CELL, 'relative overflow-hidden border-line', customActive && ON)}
           title="Custom colour"
           style={{ backgroundColor: customActive ? hex : 'var(--surface-sunken)' }}
         >
@@ -73,24 +82,25 @@ export default function ColorSwatches({ value, onChange, tokensOnly, disabled }:
               const next = hex.toLowerCase();
               if (isHexColor(next) && next !== value) onChange(next);
             }}
-            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
           />
           {customActive ? (
             <Check size={13} strokeWidth={3} className="pointer-events-none text-white" />
           ) : (
-            <span className="pointer-events-none font-mono text-[10px] text-ink-muted">#</span>
+            <span className="pointer-events-none font-mono text-meta text-ink-muted">#</span>
           )}
         </label>
       )}
 
-      {value !== null && (isColorToken(value) || isHexColor(value)) ? (
+      {/* A label or a status always has a colour, so there is nothing to clear. */}
+      {!tokensOnly && value !== null && (isColorToken(value) || isHexColor(value)) ? (
         <button
           type="button"
           disabled={disabled}
           onClick={() => onChange(null)}
           title="Clear the colour"
           aria-label="Clear the colour"
-          className="grid h-6 w-6 place-items-center rounded border border-line text-ink-muted hover:text-ink disabled:opacity-50"
+          className={cx(CELL, 'border-line-control text-ink-muted hover:bg-hover hover:text-ink')}
         >
           <X size={13} />
         </button>
