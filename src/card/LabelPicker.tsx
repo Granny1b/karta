@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Plus } from 'lucide-react';
+import { Check, Plus, X } from 'lucide-react';
 import { MAX_NAME, type ColorToken, type Id, type LabelDef } from '@/domain/board';
 import { colorValue, isColorToken } from '@/lib/colors';
 import Button from '@/components/Button';
@@ -50,8 +50,9 @@ export default function LabelPicker({
               type="button"
               disabled={disabled}
               aria-pressed={active}
+              title={active ? 'Remove from this card' : 'Put on this card'}
               onClick={() => onToggle(label.id)}
-              className="karta-toggle max-w-full"
+              className="karta-toggle group max-w-full"
             >
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-xs"
@@ -59,7 +60,14 @@ export default function LabelPicker({
                 aria-hidden
               />
               <span className="min-w-0 truncate">{label.name}</span>
-              {active ? <Check size={12} strokeWidth={3} className="shrink-0" /> : null}
+              {/* Worn: a tick at rest, and a cross under the pointer, so the
+                  chip says what the next click does before it is made. */}
+              {active ? (
+                <span className="shrink-0" aria-hidden>
+                  <Check size={12} strokeWidth={3} className="group-hover:hidden" />
+                  <X size={12} strokeWidth={3} className="hidden group-hover:block" />
+                </span>
+              ) : null}
             </button>
           );
         })}

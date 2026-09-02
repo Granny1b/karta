@@ -75,6 +75,36 @@ export default function Dialog({
     };
   }, [initialFocus]);
 
+  /*
+   * A control that unmounts under the caret — a delete button turning into its
+   * own confirmation — drops focus on the body without a blur event, and from
+   * the body neither Escape nor Tab reaches the panel's own handler. So the
+   * window is watched too: a key that arrives while focus is outside the panel
+   * brings focus back in and is answered here, before anything behind the
+   * backdrop — the canvas, the editor's own Escape — can see it.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      const active = document.activeElement;
+      if (active !== null && panel.contains(active)) return; // the panel's handler has it
+      if (e.key !== 'Escape' && e.key !== 'Tab') return;
+
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        if (dismissible) onClose();
+        else panel.focus();
+        return;
+      }
+      e.preventDefault();
+      const items = focusables();
+      (items[e.shiftKey ? items.length - 1 : 0] ?? panel).focus();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [dismissible, focusables, onClose]);
+
   // Nothing behind the backdrop scrolls while it is up.
   useEffect(() => {
     const { body } = document;

@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, type DragEvent } from 'react';
-import { Plus, SlidersHorizontal } from 'lucide-react';
+import { Plus, SlidersHorizontal, Tag } from 'lucide-react';
 import type { CardNode, ColorToken, Id } from '@/domain/board';
 import { colorValue } from '@/lib/colors';
 import { byRank, rankAfterAll, rankBetween } from '@/lib/ranks';
@@ -192,6 +192,10 @@ export default function KanbanView(): JSX.Element {
             />
             Include nested boards
           </label>
+          <Button size="sm" onClick={() => setDialog('labels')}>
+            <Tag size={13} />
+            Edit labels
+          </Button>
           <Button size="sm" onClick={() => setDialog('statuses')}>
             <SlidersHorizontal size={13} />
             Edit statuses

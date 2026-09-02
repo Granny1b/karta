@@ -278,6 +278,14 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
   };
 
   const createLabel = (name: string, color: ColorToken): void => {
+    // Typing a name that exists puts that label on the card. It used to make
+    // a second label with the same name, and a board with two "combat"s is a
+    // board that cannot be filtered — the list filled with twins that way.
+    const existing = doc.labels.find((l) => l.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      if (!card.labelIds.includes(existing.id)) toggleLabel(existing.id);
+      return;
+    }
     const label = makeLabel({ name, color });
     mutate('Add label', (d) => {
       d.labels.push(label);
@@ -377,14 +385,15 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
 
         {/*
           The picker only ever made labels, so a typo was permanent and the
-          board slowly filled with them. "Manage labels" is the way back out.
+          board slowly filled with them. "Edit labels" is the way back out:
+          rename, recolour, delete.
         */}
         <Field
           label="Labels"
           action={
             doc.labels.length > 0 ? (
               <Button size="sm" variant="ghost" onClick={() => setDialog('labels')}>
-                Manage labels
+                Edit labels
               </Button>
             ) : undefined
           }

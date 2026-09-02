@@ -55,7 +55,7 @@ export default function FilterBar(): JSX.Element {
           onClick={() => setDialog('labels')}
           className="karta-menu-item karta-menu-item--muted"
         >
-          Manage labels
+          Edit labels
         </button>
         <hr className="karta-menu-rule" />
         {labels.map((label) => (
