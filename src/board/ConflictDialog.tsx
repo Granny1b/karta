@@ -89,11 +89,11 @@ export default function ConflictDialog(): JSX.Element | null {
         </>
       }
     >
-      <p className="text-[14px] text-ink-muted">
+      <p className="text-ui text-ink-muted">
         Another browser or another person saved this board after you opened it, and the two versions could not
         be merged automatically.
       </p>
-      <ul className="mt-3 flex list-disc flex-col gap-1.5 pl-5 text-[14px] text-ink-muted">
+      <ul className="mt-3 flex list-disc flex-col gap-1.5 pl-5 text-ui text-ink-muted">
         <li>
           <span className="text-ink">Reload</span> takes the version on the server and discards the changes you
           have here.

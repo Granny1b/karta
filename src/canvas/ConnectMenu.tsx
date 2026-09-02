@@ -96,14 +96,14 @@ export default function ConnectMenu({
           <button
             type="button"
             role="menuitem"
-            className="flex h-7 w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 text-left text-[13px] text-ink transition-colors duration-[var(--dur-fast)] ease-linear hover:bg-[var(--surface-hover)]"
+            className="flex h-7 w-full items-center gap-2 rounded px-2 text-left text-caption text-ink transition-colors duration-fast ease-linear hover:bg-hover"
             onClick={onNewBoard}
           >
             <span className="flex h-3.5 w-5 shrink-0 items-center justify-center">
               <FolderPlus size={14} aria-hidden />
             </span>
             <span className="min-w-0 flex-1 truncate">Nested board</span>
-            <span className="shrink-0 text-[11px] leading-none text-ink-muted">B</span>
+            <span className="shrink-0 text-meta leading-flat text-ink-muted">B</span>
           </button>
         </>
       )}
@@ -113,7 +113,7 @@ export default function ConnectMenu({
       <button
         type="button"
         role="menuitem"
-        className="flex h-7 w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 text-left text-[13px] text-ink-muted transition-colors duration-[var(--dur-fast)] ease-linear hover:bg-[var(--surface-hover)] hover:text-ink"
+        className="flex h-7 w-full items-center gap-2 rounded px-2 text-left text-caption text-ink-muted transition-colors duration-fast ease-linear hover:bg-hover hover:text-ink"
         onClick={onCancel}
       >
         <span className="flex h-3.5 w-5 shrink-0 items-center justify-center">

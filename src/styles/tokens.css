@@ -58,6 +58,9 @@
   --surface-hover:   color-mix(in srgb, var(--ink) 5%, var(--surface-raised));
   --surface-active:  color-mix(in srgb, var(--ink) 9%, var(--surface-raised));
   --scrim:           rgb(9 13 17 / 38%);
+  /* The lighter veil under a panel that opens over the canvas rather than in
+     front of it — the board tree. Derived from the scrim so it dims at night. */
+  --scrim-soft:      color-mix(in srgb, var(--scrim) 40%, transparent);
 
   /* --- space ------------------------------------------------------------- */
   /*

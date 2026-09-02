@@ -49,7 +49,7 @@ export default function CanvasToolbar(): JSX.Element {
     <div
       role="toolbar"
       aria-label="Canvas tools"
-      className="absolute bottom-3 left-1/2 z-[2100] flex -translate-x-1/2 items-center rounded-[var(--radius-md)] border border-line bg-raised p-1 shadow-[shadow:var(--shadow-overlay)]"
+      className="absolute bottom-3 left-1/2 z-[2100] flex -translate-x-1/2 items-center rounded-md border border-line bg-raised p-1 shadow-overlay"
     >
       <AddMenu open={menuOpen} onOpenChange={setMenuOpen} />
 
@@ -77,7 +77,7 @@ export default function CanvasToolbar(): JSX.Element {
         shortcut="Ctrl+1"
         wide
         onClick={() => void zoomTo(1, { duration: 200 })}
-        icon={<span className="text-[11px] leading-none">100%</span>}
+        icon={<span className="text-meta leading-flat">100%</span>}
       />
 
       <Rule />
@@ -97,7 +97,7 @@ export default function CanvasToolbar(): JSX.Element {
  * ------------------------------------------------------------------ */
 
 function Rule(): JSX.Element {
-  return <span className="mx-1 h-5 w-px shrink-0 bg-[var(--line)]" aria-hidden />;
+  return <span className="mx-1 h-5 w-px shrink-0 bg-line" aria-hidden />;
 }
 
 interface ToolButtonProps {
@@ -140,7 +140,7 @@ function ToolButton({
         aria-haspopup={expanded === undefined ? undefined : 'menu'}
         disabled={disabled}
         onClick={onClick}
-        className={`karta-icon-btn ${wide === true ? 'w-auto px-2' : ''} aria-expanded:border-[var(--line-control)] aria-expanded:bg-sunken aria-expanded:text-ink`}
+        className={`karta-icon-btn ${wide === true ? 'w-auto px-2' : ''} aria-expanded:border-line-control aria-expanded:bg-sunken aria-expanded:text-ink`}
       >
         {icon}
       </button>
@@ -213,7 +213,7 @@ function AddMenu({ open, onOpenChange }: { open: boolean; onOpenChange(open: boo
         <div
           role="menu"
           aria-label="Add to the board"
-          className="absolute bottom-full left-1/2 mb-2 w-[224px] -translate-x-1/2 rounded-[var(--radius-md)] border border-line bg-raised p-2 shadow-[shadow:var(--shadow-overlay)]"
+          className="absolute bottom-full left-1/2 mb-2 w-[224px] -translate-x-1/2 rounded-md border border-line bg-raised p-2 shadow-overlay"
         >
           <PaletteMenuItems onPick={pick} />
           <FromSelection onDone={close} />

@@ -39,16 +39,16 @@ export default function EmptyCanvasHint(): JSX.Element | null {
   return (
     <div
       aria-hidden={!empty}
-      className={`pointer-events-none absolute left-1/2 top-1/2 w-[42ch] max-w-[80%] -translate-x-1/2 -translate-y-1/2 select-none text-center text-ink-muted transition-opacity duration-[var(--dur-base)] ease-linear ${
+      className={`pointer-events-none absolute left-1/2 top-1/2 w-[42ch] max-w-[80%] -translate-x-1/2 -translate-y-1/2 select-none text-center text-ink-muted transition-opacity duration-base ease-linear ${
         empty ? 'opacity-100' : 'opacity-0'
       }`}
     >
-      <p className="text-[15px]">Double-click anywhere to add a card.</p>
-      <p className="mt-2 text-[13px]">
+      <p className="text-body">Double-click anywhere to add a card.</p>
+      <p className="mt-2 text-caption">
         Or take a card, note, text or shape from the palette on the left — click it to drop it in the
         middle, or drag it exactly where you want it.
       </p>
-      <p className="mt-1 text-[13px]">Paste a screenshot with Ctrl+V and it lands at the pointer.</p>
+      <p className="mt-1 text-caption">Paste a screenshot with Ctrl+V and it lands at the pointer.</p>
     </div>
   );
 }

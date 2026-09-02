@@ -50,9 +50,9 @@ function NoteNodeView({ data, selected, dragging }: NodeProps<NoteFlowNode>): JS
         <span className="karta-colorbar" style={{ background: accent }} aria-hidden />
         <div className="flex h-full flex-col overflow-hidden py-2 pl-4 pr-2.5">
           {text.length > 0 ? (
-            <p className={cx('whitespace-pre-wrap text-[13px] leading-snug text-ink', clamp)}>{text}</p>
+            <p className={cx('whitespace-pre-wrap text-caption leading-snug text-ink', clamp)}>{text}</p>
           ) : (
-            <p className="text-[13px] italic leading-snug text-ink-muted">
+            <p className="text-caption italic leading-snug text-ink-muted">
               {note.locked ? 'Empty note' : 'Double-click to write'}
             </p>
           )}

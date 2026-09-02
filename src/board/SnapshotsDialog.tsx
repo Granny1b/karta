@@ -102,10 +102,10 @@ export default function SnapshotsDialog(): JSX.Element {
         </>
       }
     >
-      {error ? <p className="mb-3 text-[13px] text-[var(--temper-copper)]">{error}</p> : null}
+      {error ? <p className="mb-3 text-caption text-danger">{error}</p> : null}
 
       {snapshots === null ? (
-        <p className="py-6 text-center text-[14px] text-ink-muted">Loading…</p>
+        <p className="py-6 text-center text-ui text-ink-muted">Loading…</p>
       ) : snapshots.length === 0 ? (
         <EmptyState
           title="No restore points yet"
@@ -117,8 +117,8 @@ export default function SnapshotsDialog(): JSX.Element {
             <li key={snapshot.name} className="flex flex-col gap-2 border-b border-line py-2 last:border-b-0">
               <div className="flex items-center gap-3">
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] text-ink">{formatDateTime(snapshot.createdAt)}</span>
-                  <span className="block text-[12px] text-ink-muted">
+                  <span className="block truncate text-ui text-ink">{formatDateTime(snapshot.createdAt)}</span>
+                  <span className="block text-control text-ink-muted">
                     {formatRelative(snapshot.createdAt)} · {formatBytes(snapshot.bytes)}
                   </span>
                 </span>
@@ -130,7 +130,7 @@ export default function SnapshotsDialog(): JSX.Element {
               </div>
 
               {confirming === snapshot.name ? (
-                <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius)] bg-sunken px-2 py-2 text-[13px] text-ink-muted">
+                <div className="flex flex-wrap items-center gap-2 rounded-md bg-sunken px-2 py-2 text-caption text-ink-muted">
                   <span className="min-w-0 flex-1">
                     Replace the board with this version? The current state is saved as a restore point first.
                   </span>

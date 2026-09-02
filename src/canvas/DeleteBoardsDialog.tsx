@@ -40,7 +40,7 @@ export default function DeleteBoardsDialog({
 
   return (
     <Dialog title={many ? 'Delete these boards?' : 'Delete this board?'} width="sm" onClose={onCancel}>
-      <p className="text-[14px] text-ink">
+      <p className="text-ui text-ink">
         {many
           ? 'These boards are not empty. Deleting them removes everything on them.'
           : 'This board is not empty. Deleting it removes everything on it.'}
@@ -50,21 +50,21 @@ export default function DeleteBoardsDialog({
         {boards.map((board) => (
           <li
             key={board.boardId}
-            className="flex items-baseline justify-between gap-3 rounded border border-line px-3 py-2"
+            className="flex items-baseline justify-between gap-3 rounded-md border border-line px-3 py-2"
           >
-            <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{board.title}</span>
-            <span className="shrink-0 text-[12px] text-ink-muted">{describeContents(board)}</span>
+            <span className="min-w-0 flex-1 truncate text-ui text-ink">{board.title}</span>
+            <span className="shrink-0 text-control text-ink-muted">{describeContents(board)}</span>
           </li>
         ))}
       </ul>
 
       {boards.some((b) => b.children > 0) ? (
-        <p className="mt-3 text-[13px] text-ink-muted">
+        <p className="mt-3 text-caption text-ink-muted">
           Boards nested inside are not deleted. They stay in the sidebar.
         </p>
       ) : null}
 
-      <p className="mt-3 text-[13px] text-ink-muted">
+      <p className="mt-3 text-caption text-ink-muted">
         Storage keeps a deleted board for 14 days, so this is recoverable.
       </p>
 

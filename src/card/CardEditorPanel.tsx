@@ -1,14 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import {
-  ChevronsDownUp,
-  ChevronsUpDown,
-  Eye,
-  ImageOff,
-  Lock,
-  Pencil,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { ChevronsDownUp, ChevronsUpDown, Eye, ImageOff, Lock, Pencil, Trash2, X } from 'lucide-react';
 import {
   isCardNode,
   isNoteNode,
@@ -31,9 +22,11 @@ import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
 import { cardNodes } from '@/state/selectors';
 import { useMediaUrl } from '@/media/mediaUrl';
+import { cx } from '@/canvas/cx';
+import Button from '@/components/Button';
+import IconButton from '@/components/IconButton';
 import Checklist from '@/card/Checklist';
 import ColorSwatches, { type ColorValue } from '@/card/ColorSwatches';
-import LabelEditor from '@/card/LabelEditor';
 import LabelPicker from '@/card/LabelPicker';
 import Markdown from '@/card/Markdown';
 import { useDraft } from '@/card/useDraft';
@@ -44,6 +37,10 @@ import { useDraft } from '@/card/useDraft';
  * spec 5.2 gives it, and a note, which is text and a colour. Every field writes
  * through `updateNode` with its own undo label; text fields commit on a pause
  * rather than on every keystroke.
+ *
+ * Every control in it is one of the shared primitives — the field, the button,
+ * the icon button, the toggle chip — so the panel is the same product as the
+ * dialogs beside it rather than a second one drawn from memory.
  */
 export default function CardEditorPanel(): JSX.Element | null {
   const editorNodeId = useUiStore((s) => s.editorNodeId);
@@ -115,12 +112,69 @@ function Panel({
         e.stopPropagation();
         onClose();
       }}
-      className={`fixed bottom-0 right-0 top-12 z-30 flex w-[380px] max-w-full flex-col border-l border-line bg-raised text-ink transition-transform duration-150 ${
-        shown ? 'translate-x-0' : 'translate-x-full'
-      }`}
+      className={cx(
+        'karta-panel fixed bottom-0 right-0 top-topbar z-30 w-panel max-w-full border-l border-line transition-transform duration-base ease-linear',
+        shown ? 'translate-x-0' : 'translate-x-full',
+      )}
     >
       {children}
     </aside>
+  );
+}
+
+/** The 4 px bar the card wears on the canvas, standing beside its name here. */
+function ColorBar({ color }: { color: ColorValue }): JSX.Element {
+  return (
+    <span className="h-6 w-1 shrink-0 rounded-xs" style={{ backgroundColor: colorValue(color) }} aria-hidden />
+  );
+}
+
+/** Created and updated, in the mono the spec keeps for ids and stamps. */
+function Stamps({ createdAt, updatedAt }: { createdAt: Iso; updatedAt: Iso }): JSX.Element {
+  return (
+    <div className="min-w-0 flex-1 font-mono text-meta leading-tight text-ink-muted">
+      <div className="truncate">Created {formatDateTime(createdAt)}</div>
+      <div className="truncate">Updated {formatDateTime(updatedAt)}</div>
+    </div>
+  );
+}
+
+/**
+ * The bin, and the question it turns into. Asking in place rather than in a
+ * dialog: the panel is already the thing being deleted, and a second surface
+ * for one yes-or-no is a surface too many.
+ */
+function DeleteControl({
+  noun,
+  onDelete,
+}: {
+  /** What the button deletes, as a sentence would say it: "card", "note". */
+  noun: string;
+  onDelete(): void;
+}): JSX.Element {
+  const [confirming, setConfirming] = useState(false);
+
+  if (confirming) {
+    return (
+      <div className="flex shrink-0 items-center gap-1">
+        <Button size="sm" variant="danger" onClick={onDelete}>
+          Delete {noun}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <IconButton
+      size="sm"
+      label={`Delete ${noun}`}
+      icon={<Trash2 size={15} />}
+      className="karta-icon-btn--danger"
+      onClick={() => setConfirming(true)}
+    />
   );
 }
 
@@ -128,7 +182,6 @@ function Panel({
 function NoteEditor({ note, onClose }: { note: NoteNode; onClose(): void }): JSX.Element {
   const updateNode = useBoardStore((s) => s.updateNode);
   const removeNodes = useBoardStore((s) => s.removeNodes);
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const text = useDraft(
     note.text,
@@ -143,25 +196,14 @@ function NoteEditor({ note, onClose }: { note: NoteNode; onClose(): void }): JSX
 
   return (
     <Panel label="Note editor" onClose={onClose}>
-      <header className="flex items-center gap-2 border-b border-line px-4 py-3">
-        <span
-          className="h-6 w-1 shrink-0 rounded-sm"
-          style={{ backgroundColor: colorValue(note.color) }}
-          aria-hidden
-        />
-        <h2 className="min-w-0 flex-1 font-condensed text-[18px] font-semibold">Note</h2>
-        {note.locked ? <Lock size={14} className="text-ink-muted" aria-label="Locked" /> : null}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close the editor"
-          className="rounded p-1 text-ink-muted hover:text-ink"
-        >
-          <X size={16} />
-        </button>
+      <header className="karta-panel-head">
+        <ColorBar color={note.color} />
+        <h2 className="min-w-0 flex-1 truncate text-title">Note</h2>
+        {note.locked ? <Lock size={14} className="shrink-0 text-ink-muted" aria-label="Locked" /> : null}
+        <IconButton size="sm" label="Close the editor" icon={<X size={16} />} onClick={onClose} />
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="karta-panel-body">
         <Field label="Text">
           <textarea
             value={text.value}
@@ -172,7 +214,7 @@ function NoteEditor({ note, onClose }: { note: NoteNode; onClose(): void }): JSX
             rows={8}
             placeholder="What is this sticky for?"
             aria-label="Note text"
-            className="w-full resize-y rounded border border-line bg-raised px-2 py-1.5 text-[15px] leading-[1.5] text-ink outline-none placeholder:text-ink-muted focus:border-[var(--focus)] read-only:text-ink-muted"
+            className="karta-field text-body read-only:text-ink-muted"
           />
         </Field>
 
@@ -185,38 +227,9 @@ function NoteEditor({ note, onClose }: { note: NoteNode; onClose(): void }): JSX
         </Field>
       </div>
 
-      <footer className="flex items-center justify-between gap-2 border-t border-line px-4 py-2">
-        <div className="min-w-0 font-mono text-[11px] leading-tight text-ink-muted">
-          <div className="truncate">Created {formatDateTime(note.createdAt)}</div>
-          <div className="truncate">Updated {formatDateTime(note.updatedAt)}</div>
-        </div>
-        {note.locked ? null : confirmDelete ? (
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              onClick={deleteNote}
-              className="rounded border border-line px-2 py-1 text-[13px] text-[var(--temper-copper)] hover:bg-sunken"
-            >
-              Delete note
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmDelete(false)}
-              className="px-1 py-1 text-[13px] text-ink-muted hover:text-ink"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setConfirmDelete(true)}
-            aria-label="Delete note"
-            className="shrink-0 rounded border border-line p-1.5 text-ink-muted hover:text-[var(--temper-copper)]"
-          >
-            <Trash2 size={15} />
-          </button>
-        )}
+      <footer className="karta-panel-foot">
+        <Stamps createdAt={note.createdAt} updatedAt={note.updatedAt} />
+        {note.locked ? null : <DeleteControl noun="note" onDelete={deleteNote} />}
       </footer>
     </Panel>
   );
@@ -226,11 +239,10 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
   const updateNode = useBoardStore((s) => s.updateNode);
   const removeNodes = useBoardStore((s) => s.removeNodes);
   const mutate = useBoardStore((s) => s.mutate);
+  const setDialog = useUiStore((s) => s.setDialog);
   const mediaUrl = useMediaUrl();
 
   const [preview, setPreview] = useState(() => card.body.trim().length > 0);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [labelEditorOpen, setLabelEditorOpen] = useState(false);
 
   const title = useDraft(card.title, (value) =>
     updateNode(card.id, { title: capText(value, MAX_TITLE) }, 'Edit title'),
@@ -266,6 +278,14 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
   };
 
   const createLabel = (name: string, color: ColorToken): void => {
+    // Typing a name that exists puts that label on the card. It used to make
+    // a second label with the same name, and a board with two "combat"s is a
+    // board that cannot be filtered — the list filled with twins that way.
+    const existing = doc.labels.find((l) => l.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      if (!card.labelIds.includes(existing.id)) toggleLabel(existing.id);
+      return;
+    }
     const label = makeLabel({ name, color });
     mutate('Add label', (d) => {
       d.labels.push(label);
@@ -290,12 +310,8 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
 
   return (
     <Panel label="Card editor" onClose={onClose}>
-      <header className="flex items-start gap-2 border-b border-line px-4 py-3">
-        <span
-          className="mt-0.5 h-6 w-1 shrink-0 rounded-sm"
-          style={{ backgroundColor: colorValue(card.color) }}
-          aria-hidden
-        />
+      <header className="karta-panel-head">
+        <ColorBar color={card.color} />
         <input
           value={title.value}
           maxLength={MAX_TITLE}
@@ -303,58 +319,48 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
           onBlur={title.flush}
           placeholder="Card title"
           aria-label="Card title"
-          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-condensed text-[18px] font-semibold outline-none placeholder:font-sans placeholder:font-normal placeholder:text-ink-muted focus:border-line"
+          className="karta-field karta-field--quiet min-w-0 flex-1 font-condensed text-title font-semibold placeholder:font-sans placeholder:font-normal"
         />
-        <button
-          type="button"
+        <IconButton
+          size="sm"
+          active={card.collapsed}
+          label={card.collapsed ? 'Show the whole card (C)' : 'Title only on the canvas (C)'}
+          icon={card.collapsed ? <ChevronsUpDown size={16} /> : <ChevronsDownUp size={16} />}
           onClick={toggleCollapsed}
-          aria-pressed={card.collapsed}
-          aria-label={card.collapsed ? 'Show the whole card' : 'Collapse the card to its title'}
-          title={card.collapsed ? 'Show the whole card (C)' : 'Title only on the canvas (C)'}
-          className={`rounded p-1 hover:text-ink ${card.collapsed ? 'text-ink' : 'text-ink-muted'}`}
-        >
-          {card.collapsed ? <ChevronsUpDown size={16} /> : <ChevronsDownUp size={16} />}
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close the editor"
-          className="rounded p-1 text-ink-muted hover:text-ink"
-        >
-          <X size={16} />
-        </button>
+        />
+        <IconButton size="sm" label="Close the editor" icon={<X size={16} />} onClick={onClose} />
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="karta-panel-body">
         {cover ? (
           <img
             src={mediaUrl(cover.thumbPath) ?? undefined}
             alt=""
-            className="mb-3 h-32 w-full rounded border border-line object-cover"
+            className="h-32 w-full shrink-0 rounded-md border border-line object-cover"
           />
         ) : null}
 
         <Field
           label="Notes"
           action={
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant="ghost"
               onClick={() => {
                 body.flush();
                 setPreview((p) => !p);
               }}
-              className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[12px] text-ink-muted hover:text-ink"
             >
-              {preview ? <Pencil size={12} /> : <Eye size={12} />}
+              {preview ? <Pencil size={13} /> : <Eye size={13} />}
               {preview ? 'Edit' : 'Preview'}
-            </button>
+            </Button>
           }
         >
           {preview ? (
             body.value.trim().length > 0 ? (
-              <Markdown className="max-w-[68ch] text-[15px] leading-[1.5]">{body.value}</Markdown>
+              <Markdown className="max-w-measure text-body leading-body">{body.value}</Markdown>
             ) : (
-              <p className="text-[14px] text-ink-muted">Nothing written yet.</p>
+              <p className="text-ui text-ink-muted">Nothing written yet.</p>
             )
           ) : (
             <textarea
@@ -365,7 +371,7 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
               rows={8}
               placeholder="Markdown is supported"
               aria-label="Card notes"
-              className="w-full max-w-[68ch] resize-y rounded border border-line bg-raised px-2 py-1.5 text-[15px] leading-[1.5] text-ink outline-none placeholder:text-ink-muted focus:border-[var(--focus)]"
+              className="karta-field max-w-measure text-body"
             />
           )}
         </Field>
@@ -377,26 +383,27 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
           />
         </Field>
 
-        <Field label="Labels">
+        {/*
+          The picker only ever made labels, so a typo was permanent and the
+          board slowly filled with them. "Edit labels" is the way back out:
+          rename, recolour, delete.
+        */}
+        <Field
+          label="Labels"
+          action={
+            doc.labels.length > 0 ? (
+              <Button size="sm" variant="ghost" onClick={() => setDialog('labels')}>
+                Edit labels
+              </Button>
+            ) : undefined
+          }
+        >
           <LabelPicker
             labels={doc.labels}
             selectedIds={card.labelIds}
             onToggle={toggleLabel}
             onCreate={createLabel}
           />
-          {/*
-            The picker only ever made labels, so a typo was permanent and the
-            board slowly filled with them. This is the way back out.
-          */}
-          {doc.labels.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setLabelEditorOpen(true)}
-              className="mt-1 text-[12px] text-ink-muted underline-offset-2 hover:text-ink hover:underline"
-            >
-              Manage labels
-            </button>
-          ) : null}
         </Field>
 
         <Field label="Colour">
@@ -406,8 +413,9 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
         <Field label="Status">
           <select
             value={card.statusId ?? ''}
+            aria-label="Status"
             onChange={(e) => setStatus(e.target.value === '' ? null : e.target.value)}
-            className="w-full rounded border border-line bg-raised px-2 py-1 text-[14px] text-ink outline-none focus:border-[var(--focus)]"
+            className="karta-field"
           >
             <option value="">No status</option>
             {statuses.map((status) => (
@@ -423,36 +431,36 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
             <input
               type="date"
               value={dateInputValue(card.dueDate)}
+              aria-label="Due date"
               onChange={(e) => updateNode(card.id, { dueDate: isoFromDateInput(e.target.value) }, 'Change due date')}
-              className="rounded border border-line bg-raised px-2 py-1 text-[14px] text-ink outline-none focus:border-[var(--focus)]"
+              className="karta-field w-auto"
             />
             {card.dueDate ? (
-              <button
-                type="button"
-                onClick={() => updateNode(card.id, { dueDate: null }, 'Clear due date')}
-                className="text-[13px] text-ink-muted hover:text-ink"
-              >
+              <Button size="sm" variant="ghost" onClick={() => updateNode(card.id, { dueDate: null }, 'Clear due date')}>
                 Clear
-              </button>
+              </Button>
             ) : null}
           </div>
         </Field>
 
         <Field label="Cover image">
           {doc.media.length === 0 ? (
-            <p className="flex items-center gap-1.5 text-[13px] text-ink-muted">
+            <p className="flex items-center gap-2 text-caption text-ink-muted">
               <ImageOff size={14} />
               No images on this board yet.
             </p>
           ) : (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setCover(null)}
                 aria-pressed={card.coverMediaId === null}
-                className={`h-12 w-16 rounded border text-[12px] text-ink-muted ${
-                  card.coverMediaId === null ? 'border-line-strong text-ink' : 'border-line hover:text-ink'
-                }`}
+                className={cx(
+                  'h-12 w-16 rounded border text-control transition-colors duration-fast ease-linear',
+                  card.coverMediaId === null
+                    ? 'border-focus text-ink'
+                    : 'border-line-control text-ink-muted hover:bg-hover hover:text-ink',
+                )}
               >
                 None
               </button>
@@ -466,16 +474,15 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
                     onClick={() => setCover(active ? null : media.id)}
                     aria-pressed={active}
                     aria-label="Use as cover"
-                    className={`h-12 w-16 overflow-hidden rounded border ${
-                      active ? 'border-line-strong' : 'border-line'
-                    }`}
+                    className={cx(
+                      'h-12 w-16 overflow-hidden rounded border transition-colors duration-fast ease-linear',
+                      active ? 'border-focus' : 'border-line-control',
+                    )}
                   >
                     {url ? (
                       <img src={url} alt="" className="h-full w-full object-cover" />
                     ) : (
-                      <span className="grid h-full w-full place-items-center bg-sunken text-[11px] text-ink-muted">
-                        …
-                      </span>
+                      <span className="grid h-full w-full place-items-center bg-sunken text-meta text-ink-muted">…</span>
                     )}
                   </button>
                 );
@@ -485,45 +492,15 @@ function Editor({ card, doc, onClose }: { card: CardNode; doc: BoardDoc; onClose
         </Field>
       </div>
 
-      <footer className="flex items-center justify-between gap-2 border-t border-line px-4 py-2">
-        <div className="min-w-0 font-mono text-[11px] leading-tight text-ink-muted">
-          <div className="truncate">Created {formatDateTime(card.createdAt)}</div>
-          <div className="truncate">Updated {formatDateTime(card.updatedAt)}</div>
-        </div>
-        {confirmDelete ? (
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              onClick={deleteCard}
-              className="rounded border border-line px-2 py-1 text-[13px] text-[var(--temper-copper)] hover:bg-sunken"
-            >
-              Delete card
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmDelete(false)}
-              className="px-1 py-1 text-[13px] text-ink-muted hover:text-ink"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setConfirmDelete(true)}
-            aria-label="Delete card"
-            className="shrink-0 rounded border border-line p-1.5 text-ink-muted hover:text-[var(--temper-copper)]"
-          >
-            <Trash2 size={15} />
-          </button>
-        )}
+      <footer className="karta-panel-foot">
+        <Stamps createdAt={card.createdAt} updatedAt={card.updatedAt} />
+        <DeleteControl noun="card" onDelete={deleteCard} />
       </footer>
-
-      {labelEditorOpen ? <LabelEditor onClose={() => setLabelEditorOpen(false)} /> : null}
     </Panel>
   );
 }
 
+/** A named group of controls: the name in the caption voice, and beside it the one action it might carry. */
 function Field({
   label,
   action,
@@ -534,9 +511,9 @@ function Field({
   children: ReactNode;
 }): JSX.Element {
   return (
-    <section className="mb-4">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <h2 className="text-[13px] text-ink-muted">{label}</h2>
+    <section className="karta-fieldset" aria-label={label}>
+      <div className="karta-fieldset-head">
+        <p className="karta-caption">{label}</p>
         {action}
       </div>
       {children}

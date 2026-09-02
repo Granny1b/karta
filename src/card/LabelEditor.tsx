@@ -1,17 +1,15 @@
 import { useMemo, useState } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
-import {
-  capText,
-  isCardNode,
-  MAX_NAME,
-  type ColorToken,
-  type Id,
-  type LabelDef,
-} from '@/domain/board';
+import { Plus, Trash2 } from 'lucide-react';
+import { capText, MAX_NAME, type ColorToken, type Id, type LabelDef } from '@/domain/board';
 import { isColorToken } from '@/lib/colors';
 import { makeLabel } from '@/state/factories';
 import { useBoardStore } from '@/state/boardStore';
+import { useUiStore } from '@/state/uiStore';
+import Button from '@/components/Button';
+import Dialog from '@/components/Dialog';
+import IconButton from '@/components/IconButton';
 import ColorSwatches from '@/card/ColorSwatches';
+import { deleteLabels, labelUsage, unusedLabels } from '@/card/labels';
 import { useDraft } from '@/card/useDraft';
 
 /**
@@ -23,28 +21,31 @@ import { useDraft } from '@/card/useDraft';
  * deliberately: two lists of named, coloured, board-level things should not be
  * managed two different ways.
  *
- * Deleting a label takes it off every card that carries it, in the same write,
- * so no card is left pointing at a label that is gone. That is the one thing
- * this dialog does that cannot be undone by retyping the name, so it asks
- * first and says how many cards it is about to touch.
+ * Deleting is as cheap as the delete is: a label no card wears goes on one
+ * click, and all of them go on two. A label cards do wear comes off every one
+ * of them in the same write, so no card is left pointing at a label that is
+ * gone — that is the one thing here that a retyped name cannot undo, so it
+ * asks first and says how many cards it is about to touch.
+ *
+ * It is opened by name (`ui.dialog === 'labels'`) from the card editor, the
+ * filter and the column view, and drawn by the shell: a dialog mounted inside
+ * the panel that asked for it inherits that panel's transform and is clipped
+ * to it.
  */
-export default function LabelEditor({ onClose }: { onClose(): void }): JSX.Element {
+export default function LabelEditor(): JSX.Element {
   const doc = useBoardStore((s) => s.doc);
   const mutate = useBoardStore((s) => s.mutate);
+  const setDialog = useUiStore((s) => s.setDialog);
+  const toast = useUiStore((s) => s.toast);
   const [name, setName] = useState('');
   const [confirmId, setConfirmId] = useState<Id | null>(null);
+  const [confirmUnused, setConfirmUnused] = useState(false);
 
   const labels = useMemo(() => doc?.labels ?? [], [doc?.labels]);
+  const usage = useMemo(() => labelUsage(doc?.nodes ?? []), [doc?.nodes]);
+  const unused = useMemo(() => unusedLabels(labels, usage), [labels, usage]);
 
-  /** How many cards wear each label, which is what makes a delete a decision. */
-  const usage = useMemo(() => {
-    const counts = new Map<Id, number>();
-    for (const node of doc?.nodes ?? []) {
-      if (!isCardNode(node)) continue;
-      for (const id of node.labelIds) counts.set(id, (counts.get(id) ?? 0) + 1);
-    }
-    return counts;
-  }, [doc?.nodes]);
+  const close = (): void => setDialog(null);
 
   const rename = (id: Id, value: string): void => {
     mutate('Rename label', (d) => {
@@ -77,57 +78,85 @@ export default function LabelEditor({ onClose }: { onClose(): void }): JSX.Eleme
   const remove = (id: Id): void => {
     setConfirmId(null);
     mutate('Delete label', (d) => {
-      d.labels = d.labels.filter((l) => l.id !== id);
-      // The card keeps everything else; only the reference to a label that no
-      // longer exists goes, and it goes in the same write as the label itself.
-      for (const node of d.nodes) {
-        if (!isCardNode(node)) continue;
-        if (node.labelIds.includes(id)) node.labelIds = node.labelIds.filter((l) => l !== id);
-      }
+      deleteLabels(d, new Set([id]));
     });
   };
 
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Board labels"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.stopPropagation();
-          onClose();
-        }
-      }}
-    >
-      <div className="flex max-h-[80vh] w-full max-w-[560px] flex-col rounded border border-line bg-raised text-ink">
-        <header className="flex items-center justify-between border-b border-line px-4 py-3">
-          <h2 className="font-condensed text-[17px] font-semibold">Labels</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-ink-muted hover:text-ink"
-          >
-            <X size={16} />
-          </button>
-        </header>
+  const removeUnused = (): void => {
+    setConfirmUnused(false);
+    const ids = new Set(unused.map((label) => label.id));
+    if (ids.size === 0) return;
+    mutate('Delete unused labels', (d) => {
+      deleteLabels(d, ids);
+    });
+    toast(`Deleted ${ids.size} unused label${ids.size === 1 ? '' : 's'}. Ctrl+Z brings them back.`);
+  };
 
-        <div className="flex-1 overflow-y-auto px-4 py-3">
-          {labels.length === 0 ? (
-            <p className="mb-3 text-[14px] text-ink-muted">
-              This board has no labels yet. Add one below, or make one straight from a card.
+  /** "3 cards", or the fact that there are none — the whole cost of a delete. */
+  const wornBy = (count: number): string =>
+    count === 0 ? 'unused' : `${count} card${count === 1 ? '' : 's'}`;
+
+  return (
+    <Dialog
+      title="Labels"
+      width="md"
+      onClose={close}
+      footer={
+        <>
+          <input
+            value={name}
+            maxLength={MAX_NAME}
+            placeholder="New label name"
+            aria-label="New label name"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                add();
+              }
+            }}
+            className="karta-field min-w-0 flex-1"
+          />
+          <Button onClick={add} disabled={name.trim().length === 0}>
+            <Plus size={14} />
+            Add label
+          </Button>
+        </>
+      }
+    >
+      {labels.length === 0 ? (
+        <p className="text-ui text-ink-muted">
+          This board has no labels yet. Add one below, or make one straight from a card.
+        </p>
+      ) : (
+        <>
+          <div className="karta-fieldset-head mb-3">
+            <p className="karta-caption">
+              {labels.length} label{labels.length === 1 ? '' : 's'}
+              {unused.length > 0 ? ` · ${unused.length} unused` : ''}
             </p>
-          ) : null}
+            {unused.length === 0 ? null : confirmUnused ? (
+              <div className="flex shrink-0 items-center gap-1">
+                <Button size="sm" variant="danger" onClick={removeUnused}>
+                  Delete {unused.length} unused
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmUnused(false)}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button size="sm" onClick={() => setConfirmUnused(true)}>
+                <Trash2 size={13} />
+                Delete unused
+              </Button>
+            )}
+          </div>
 
           <ul className="flex flex-col gap-2">
             {labels.map((label) => {
               const used = usage.get(label.id) ?? 0;
               return (
-                <li key={label.id} className="rounded border border-line px-3 py-2">
+                <li key={label.id} className="rounded-md border border-line px-3 py-2">
                   <div className="flex items-center gap-2">
                     <span
                       aria-hidden
@@ -135,41 +164,33 @@ export default function LabelEditor({ onClose }: { onClose(): void }): JSX.Eleme
                       style={{ background: `var(--temper-${label.color})` }}
                     />
                     <LabelName label={label} onRename={(value) => rename(label.id, value)} />
-                    <span className="shrink-0 text-[12px] text-ink-muted">
-                      {used === 0 ? 'unused' : `${used} card${used === 1 ? '' : 's'}`}
-                    </span>
+                    {/* The confirmation says the count itself, so it is not said twice. */}
+                    {confirmId === label.id ? null : (
+                      <span className="shrink-0 text-control text-ink-muted">{wornBy(used)}</span>
+                    )}
 
                     {confirmId === label.id ? (
                       <div className="flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => remove(label.id)}
-                          className="rounded border border-line px-2 py-1 text-[12px] text-[var(--temper-copper)] hover:bg-sunken"
-                        >
-                          Delete
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmId(null)}
-                          className="px-1 text-[12px] text-ink-muted hover:text-ink"
-                        >
+                        <Button size="sm" variant="danger" onClick={() => remove(label.id)}>
+                          Take it off {wornBy(used)}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmId(null)}>
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmId(label.id)}
-                        aria-label={`Delete ${label.name}`}
-                        title={
+                      <IconButton
+                        size="sm"
+                        label={
                           used === 0
-                            ? 'Nothing is using it'
-                            : `It comes off ${used} card${used === 1 ? '' : 's'}`
+                            ? `Delete ${label.name} — nothing is using it`
+                            : `Delete ${label.name} — it comes off ${wornBy(used)}`
                         }
-                        className="shrink-0 rounded p-1 text-ink-muted hover:text-[var(--temper-copper)]"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                        icon={<Trash2 size={14} />}
+                        className="karta-icon-btn--danger"
+                        // Nothing to lose, nothing to ask: an unused label goes on one click.
+                        onClick={() => (used === 0 ? remove(label.id) : setConfirmId(label.id))}
+                      />
                     )}
                   </div>
 
@@ -186,35 +207,9 @@ export default function LabelEditor({ onClose }: { onClose(): void }): JSX.Eleme
               );
             })}
           </ul>
-        </div>
-
-        <footer className="flex items-center gap-2 border-t border-line px-4 py-3">
-          <input
-            value={name}
-            maxLength={MAX_NAME}
-            placeholder="New label name"
-            aria-label="New label name"
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                add();
-              }
-            }}
-            className="min-w-0 flex-1 rounded border border-line bg-raised px-2 py-1 text-[14px] text-ink outline-none placeholder:text-ink-muted focus:border-[var(--focus)]"
-          />
-          <button
-            type="button"
-            onClick={add}
-            disabled={name.trim().length === 0}
-            className="flex items-center gap-1 rounded border border-line px-2 py-1 text-[13px] text-ink hover:bg-sunken disabled:opacity-50"
-          >
-            <Plus size={13} />
-            Add label
-          </button>
-        </footer>
-      </div>
-    </div>
+        </>
+      )}
+    </Dialog>
   );
 }
 
@@ -227,7 +222,7 @@ function LabelName({ label, onRename }: { label: LabelDef; onRename(value: strin
       aria-label="Label name"
       onChange={(e) => draft.setValue(e.target.value)}
       onBlur={draft.flush}
-      className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-[14px] text-ink outline-none focus:border-line"
+      className="karta-field karta-field--sm karta-field--quiet min-w-0 flex-1"
     />
   );
 }

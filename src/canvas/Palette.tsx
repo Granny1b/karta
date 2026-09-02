@@ -181,7 +181,7 @@ export type ItemLayout = 'row' | 'cell';
  */
 function paletteItemClass(layout: ItemLayout): string {
   const shared =
-    'flex w-full items-center rounded-[var(--radius-sm)] text-ink-muted transition-colors duration-[var(--dur-fast)] ease-linear hover:bg-[var(--surface-hover)] hover:text-ink active:bg-[var(--surface-active)]';
+    'flex w-full items-center rounded text-ink-muted transition-colors duration-fast ease-linear hover:bg-hover hover:text-ink active:bg-active';
   return layout === 'row' ? `${shared} h-7 gap-2 px-2 text-left` : `${shared} h-8 justify-center`;
 }
 
@@ -194,8 +194,8 @@ function PaletteItemFace({ entry, layout }: { entry: PaletteEntry; layout: ItemL
       </span>
       {layout === 'row' ? (
         <>
-          <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{entry.label}</span>
-          {entry.shortcut ? <span className="shrink-0 text-[11px] leading-none">{entry.shortcut}</span> : null}
+          <span className="min-w-0 flex-1 truncate text-caption text-ink">{entry.label}</span>
+          {entry.shortcut ? <span className="shrink-0 text-meta leading-flat">{entry.shortcut}</span> : null}
         </>
       ) : null}
     </>
@@ -238,7 +238,7 @@ function Item({ entry, index, tabbable, layout, onFocusItem, onPick, register }:
  * ------------------------------------------------------------------ */
 
 const PANEL =
-  'absolute left-3 top-3 z-[2100] flex flex-col rounded-[var(--radius-md)] border border-line bg-raised shadow-[shadow:var(--shadow-overlay)]';
+  'absolute left-3 top-3 z-[2100] flex flex-col rounded-md border border-line bg-raised shadow-overlay';
 
 export default function Palette(): JSX.Element {
   const open = usePaletteOpen((s) => s.open);
@@ -374,7 +374,7 @@ export default function Palette(): JSX.Element {
     <aside aria-label="Palette" className={`${PANEL} max-h-[calc(100%-72px)] w-[176px] overflow-hidden`}>
       {/* The heading sits on the same 16 px text edge as the items below it. */}
       <header className="flex h-8 shrink-0 items-center gap-1 border-b border-line pl-4 pr-1">
-        <h2 id={headingId} className="min-w-0 flex-1 truncate font-condensed text-[13px] font-semibold text-ink">
+        <h2 id={headingId} className="min-w-0 flex-1 truncate font-condensed text-caption font-semibold text-ink">
           Add
         </h2>
         <IconButton
@@ -429,10 +429,10 @@ export default function Palette(): JSX.Element {
             <span className="flex h-3.5 w-5 shrink-0 items-center justify-center" aria-hidden>
               <FolderPlus size={15} />
             </span>
-            <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
+            <span className="min-w-0 flex-1 truncate text-caption text-ink">
               {makingBoard ? 'Creating…' : 'Nested board'}
             </span>
-            <span className="shrink-0 text-[11px] leading-none">B</span>
+            <span className="shrink-0 text-meta leading-flat">B</span>
           </button>
         </div>
 
@@ -480,7 +480,7 @@ function Caption({
   children: string;
 }): JSX.Element {
   return (
-    <p className="flex items-baseline justify-between gap-2 px-2 pb-1 text-[11px] leading-none text-ink-muted">
+    <p className="flex items-baseline justify-between gap-2 px-2 pb-1 text-meta leading-flat text-ink-muted">
       <span id={id}>{children}</span>
       {groupKey ? (
         <span title={`${groupKey.does} · ${groupKey.key}`}>
@@ -547,5 +547,5 @@ export function PaletteMenuItems({ onPick }: { onPick(entry: PaletteEntry): void
 }
 
 function Divider(): JSX.Element {
-  return <span className="h-px w-6 shrink-0 bg-[var(--line)]" aria-hidden />;
+  return <span className="h-px w-6 shrink-0 bg-line" aria-hidden />;
 }

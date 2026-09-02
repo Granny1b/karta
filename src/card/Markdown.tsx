@@ -45,21 +45,21 @@ export default function Markdown({ children, className }: MarkdownProps): JSX.El
             src={resolved}
             alt={alt ?? ''}
             loading="lazy"
-            className="my-2 max-w-full rounded border border-line"
+            className="my-2 max-w-full rounded-md border border-line"
           />
         );
       },
       h1: ({ node: _node, ...props }) => (
-        <h1 {...props} className="mb-1 mt-3 font-condensed text-[19px] font-semibold first:mt-0" />
+        <h1 {...props} className="mb-1 mt-3 text-title first:mt-0" />
       ),
       h2: ({ node: _node, ...props }) => (
-        <h2 {...props} className="mb-1 mt-3 font-condensed text-[17px] font-semibold first:mt-0" />
+        <h2 {...props} className="mb-1 mt-3 text-body first:mt-0" />
       ),
       h3: ({ node: _node, ...props }) => (
-        <h3 {...props} className="mb-1 mt-3 font-condensed text-[15px] font-semibold first:mt-0" />
+        <h3 {...props} className="mb-1 mt-3 font-sans text-body font-semibold first:mt-0" />
       ),
       h4: ({ node: _node, ...props }) => (
-        <h4 {...props} className="mb-1 mt-3 text-[15px] font-semibold first:mt-0" />
+        <h4 {...props} className="mb-1 mt-3 text-ui font-semibold first:mt-0" />
       ),
       p: ({ node: _node, ...props }) => <p {...props} className="my-2 first:mt-0 last:mb-0" />,
       ul: ({ node: _node, ...props }) => <ul {...props} className="my-2 list-disc pl-5" />,
@@ -71,19 +71,19 @@ export default function Markdown({ children, className }: MarkdownProps): JSX.El
       code: ({ node: _node, ...props }) => (
         <code
           {...props}
-          className="rounded bg-sunken px-1 py-0.5 font-mono text-[13px] text-ink"
+          className="rounded-xs bg-sunken px-1 py-0.5 font-mono text-caption text-ink"
         />
       ),
       pre: ({ node: _node, ...props }) => (
         <pre
           {...props}
-          className="my-2 overflow-x-auto rounded border border-line bg-sunken p-3 font-mono text-[13px] [&>code]:bg-transparent [&>code]:p-0"
+          className="my-2 overflow-x-auto rounded-md border border-line bg-sunken p-3 font-mono text-caption [&>code]:bg-transparent [&>code]:p-0"
         />
       ),
       hr: ({ node: _node, ...props }) => <hr {...props} className="my-3 border-line" />,
       table: ({ node: _node, ...props }) => (
         <div className="my-2 overflow-x-auto">
-          <table {...props} className="w-full border-collapse text-[14px]" />
+          <table {...props} className="w-full border-collapse text-ui" />
         </div>
       ),
       th: ({ node: _node, ...props }) => (
@@ -91,7 +91,7 @@ export default function Markdown({ children, className }: MarkdownProps): JSX.El
       ),
       td: ({ node: _node, ...props }) => <td {...props} className="border border-line px-2 py-1 align-top" />,
       input: ({ node: _node, ...props }) => (
-        <input {...props} readOnly className="mr-1 align-middle accent-[var(--focus)]" />
+        <input {...props} readOnly className="karta-check mr-1 inline-block align-middle" />
       ),
     }),
     [mediaUrl],

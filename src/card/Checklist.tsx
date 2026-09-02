@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import { GripVertical, X } from 'lucide-react';
-import type { ChecklistItem, Id } from '@/domain/board';
+import { MAX_CHECKLIST_TEXT, capText, type ChecklistItem, type Id } from '@/domain/board';
 import { byRank, rankAfterAll, rankBetween } from '@/lib/ranks';
 import { makeChecklistItem } from '@/state/factories';
+import { cx } from '@/canvas/cx';
 import ProgressRing from '@/card/ProgressRing';
 import { useDraft } from '@/card/useDraft';
 
@@ -19,6 +20,11 @@ const DRAG_TYPE = 'application/x-karta-checklist';
  * The card's checklist: ordered by fractional rank, edited in place, reordered
  * by dragging the handle. Enter in the add field keeps adding, which is how
  * anyone actually types a list of five things.
+ *
+ * An item's words wrap. They used to sit in a one-line field, so anything
+ * longer than the panel was cut off at the edge and could only be read by
+ * clicking in and walking the caret along it — a checklist that has to be
+ * scrolled through a slot is not a list that can be read.
  */
 export default function Checklist({ items, onChange, disabled }: ChecklistProps): JSX.Element {
   const ordered = useMemo(() => [...items].sort(byRank), [items]);
@@ -31,7 +37,7 @@ export default function Checklist({ items, onChange, disabled }: ChecklistProps)
   const addRef = useRef<HTMLInputElement | null>(null);
 
   const add = (): void => {
-    const trimmed = text.trim();
+    const trimmed = capText(text.trim(), MAX_CHECKLIST_TEXT);
     if (trimmed.length === 0) return;
     const item = makeChecklistItem({ text: trimmed, rank: rankAfterAll(items.map((i) => i.rank)) });
     onChange([...items, item], 'Add checklist item');
@@ -75,19 +81,27 @@ export default function Checklist({ items, onChange, disabled }: ChecklistProps)
     patch(dragId, { rank: rankBetween(before?.rank ?? null, after?.rank ?? null) }, 'Reorder checklist');
   };
 
+  /** Where the drop line is drawn: above the row it lands before, or below the last. */
+  const dropSide = (index: number): 'before' | 'after' | undefined => {
+    if (dropIndex === null) return undefined;
+    if (dropIndex === index) return 'before';
+    if (dropIndex === ordered.length && index === ordered.length - 1) return 'after';
+    return undefined;
+  };
+
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       {ordered.length > 0 ? (
-        <div className="flex items-center gap-2 text-[13px] text-ink-muted">
+        <p className="karta-caption flex items-center gap-2">
           <ProgressRing done={done} total={ordered.length} size={14} />
           <span>
             {done} of {ordered.length}
           </span>
-        </div>
+        </p>
       ) : null}
 
       <ul
-        className="flex flex-col"
+        className="karta-checklist"
         onDragOver={(e) => {
           if (dragId === null) return;
           e.preventDefault();
@@ -122,43 +136,45 @@ export default function Checklist({ items, onChange, disabled }: ChecklistProps)
               e.stopPropagation();
               drop();
             }}
-            className={`group flex items-center gap-1.5 border-y border-transparent py-0.5 ${
-              dropIndex === index ? 'border-t-[var(--focus)]' : ''
-            } ${dropIndex === index + 1 ? 'border-b-[var(--focus)]' : ''} ${
-              dragId === item.id ? 'opacity-40' : ''
-            }`}
+            data-drop={dropSide(index)}
+            className={cx('karta-checklist-row', dragId === item.id && 'is-dragging', item.done && 'is-done')}
           >
             <button
               type="button"
               disabled={disabled}
               aria-label="Reorder"
+              title="Drag to reorder"
               onMouseDown={() => setHandleArmed(item.id)}
               onMouseUp={() => setHandleArmed(null)}
-              className="cursor-grab text-ink-muted opacity-0 group-hover:opacity-100 disabled:hidden"
+              className="karta-checklist-aside karta-checklist-tool karta-checklist-tool--grip"
             >
               <GripVertical size={14} />
             </button>
 
-            <input
-              type="checkbox"
-              disabled={disabled}
-              checked={item.done}
-              onChange={() => patch(item.id, { done: !item.done }, item.done ? 'Uncheck item' : 'Check item')}
-              className="h-3.5 w-3.5 shrink-0 accent-[var(--focus)]"
-            />
+            <span className="karta-checklist-aside">
+              <input
+                type="checkbox"
+                disabled={disabled}
+                checked={item.done}
+                aria-label={item.done ? 'Done' : 'Not done'}
+                onChange={() => patch(item.id, { done: !item.done }, item.done ? 'Uncheck item' : 'Check item')}
+                className="karta-check"
+              />
+            </span>
 
             <ItemText
               item={item}
               disabled={disabled}
-              onRename={(value) => patch(item.id, { text: value }, 'Edit checklist item')}
+              onRename={(value) => patch(item.id, { text: capText(value, MAX_CHECKLIST_TEXT) }, 'Edit checklist item')}
             />
 
             <button
               type="button"
               disabled={disabled}
               aria-label="Delete item"
+              title="Delete item"
               onClick={() => remove(item.id)}
-              className="text-ink-muted opacity-0 hover:text-ink group-hover:opacity-100 disabled:hidden"
+              className="karta-checklist-aside karta-checklist-tool"
             >
               <X size={14} />
             </button>
@@ -170,7 +186,9 @@ export default function Checklist({ items, onChange, disabled }: ChecklistProps)
         ref={addRef}
         value={text}
         disabled={disabled}
+        maxLength={MAX_CHECKLIST_TEXT}
         placeholder="Add an item"
+        aria-label="Add a checklist item"
         onChange={(e) => setText(e.target.value)}
         onBlur={add}
         onKeyDown={(e) => {
@@ -183,12 +201,17 @@ export default function Checklist({ items, onChange, disabled }: ChecklistProps)
             setText('');
           }
         }}
-        className="rounded border border-line bg-raised px-2 py-1 text-[14px] text-ink outline-none placeholder:text-ink-muted focus:border-[var(--focus)] disabled:opacity-50"
+        className="karta-field"
       />
     </div>
   );
 }
 
+/**
+ * One item's words: a field exactly as tall as what it holds (`.karta-grow`),
+ * so a long item is read across three lines rather than scrolled through one.
+ * Enter finishes the edit, as it does everywhere else in the panel.
+ */
 function ItemText({
   item,
   disabled,
@@ -201,21 +224,23 @@ function ItemText({
   const draft = useDraft(item.text, onRename);
 
   return (
-    <input
-      value={draft.value}
-      disabled={disabled}
-      onChange={(e) => draft.setValue(e.target.value)}
-      onBlur={draft.flush}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          draft.flush();
-          e.currentTarget.blur();
-        }
-      }}
-      className={`min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-[14px] outline-none focus:border-line ${
-        item.done ? 'text-ink-muted line-through' : 'text-ink'
-      }`}
-    />
+    <div className="karta-grow karta-checklist-text" data-value={draft.value}>
+      <textarea
+        rows={1}
+        value={draft.value}
+        disabled={disabled}
+        maxLength={MAX_CHECKLIST_TEXT}
+        aria-label="Checklist item"
+        onChange={(e) => draft.setValue(e.target.value)}
+        onBlur={draft.flush}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            draft.flush();
+            e.currentTarget.blur();
+          }
+        }}
+      />
+    </div>
   );
 }

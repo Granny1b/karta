@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, FolderPlus, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { cx } from '@/canvas/cx';
 import { DEFAULT_NODE_SIZE, type BoardNode, type BoardSummary, type Id } from '@/domain/board';
 import { ApiError, api } from '@/lib/api';
 import { useBoardStore } from '@/state/boardStore';
@@ -304,16 +305,16 @@ export default function SidebarTree(): JSX.Element | null {
   return (
     <>
       <div
-        className="absolute inset-0 z-20 bg-black/10"
+        className="absolute inset-0 z-20 bg-[var(--scrim-soft)]"
         onMouseDown={() => setSidebarOpen(false)}
         aria-hidden
       />
       <aside
         aria-label="Boards"
-        className="absolute bottom-0 left-0 top-0 z-30 flex w-[var(--sidebar-w)] max-w-[85vw] flex-col border-r border-line bg-raised text-ink"
+        className="karta-panel absolute bottom-0 left-0 top-0 z-30 w-sidebar max-w-[85vw] border-r border-line"
       >
-        <header className="flex items-center gap-1 border-b border-line px-2 py-2">
-          <h2 className="min-w-0 flex-1 truncate px-1 font-condensed text-[15px] font-semibold">Boards</h2>
+        <header className="karta-panel-head">
+          <h2 className="min-w-0 flex-1 truncate text-body">Boards</h2>
           <IconButton
             label="New board"
             size="sm"
@@ -331,7 +332,7 @@ export default function SidebarTree(): JSX.Element | null {
 
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {tree.length === 0 ? (
-            <p className="px-3 py-4 text-[13px] text-ink-muted">No boards yet.</p>
+            <p className="px-4 py-4 text-caption text-ink-muted">No boards yet.</p>
           ) : (
             tree.map((node) => (
               <Row
@@ -355,7 +356,7 @@ export default function SidebarTree(): JSX.Element | null {
           )}
         </div>
 
-        <footer className="border-t border-line p-2">
+        <footer className="karta-panel-foot px-3">
           <Button
             size="sm"
             className="w-full"
@@ -399,21 +400,19 @@ function Row(props: RowProps): JSX.Element {
   return (
     <div>
       <div
-        className={`group flex items-center gap-1 pr-1 ${isCurrent ? 'bg-sunken' : 'hover:bg-sunken'}`}
+        className={cx('group flex items-center gap-1 pr-1', isCurrent ? 'bg-sunken' : 'hover:bg-hover')}
         style={{ paddingLeft: `${depth * 14 + 4}px` }}
       >
         {children.length > 0 ? (
-          <button
-            type="button"
-            aria-label={isOpen ? `Collapse ${summary.title}` : `Expand ${summary.title}`}
+          <IconButton
+            size="sm"
+            label={isOpen ? `Collapse ${summary.title}` : `Expand ${summary.title}`}
             aria-expanded={isOpen}
+            icon={isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             onClick={() => props.onToggle(summary.id)}
-            className="shrink-0 rounded p-0.5 text-ink-muted hover:text-ink"
-          >
-            {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </button>
+          />
         ) : (
-          <span className="w-[22px] shrink-0" aria-hidden />
+          <span className="w-7 shrink-0" aria-hidden />
         )}
 
         {renamingId === summary.id ? (
@@ -428,14 +427,17 @@ function Row(props: RowProps): JSX.Element {
             onClick={() => props.onOpen(summary.id)}
             onDoubleClick={() => props.onStartRename(summary.id)}
             title={`${summary.title} — double-click to rename`}
-            className={`min-w-0 flex-1 truncate py-1 text-left text-[13px] ${isCurrent ? 'text-ink' : 'text-ink-muted group-hover:text-ink'}`}
+            className={cx(
+              'h-7 min-w-0 flex-1 truncate text-left text-caption',
+              isCurrent ? 'text-ink' : 'text-ink-muted group-hover:text-ink',
+            )}
           >
             {summary.icon ? <span className="mr-1">{summary.icon}</span> : null}
             {summary.title}
           </button>
         )}
 
-        <span className="shrink-0 font-mono text-[11px] text-ink-muted" title={`${done} of ${cards} cards done`}>
+        <span className="shrink-0 font-mono text-meta text-ink-muted" title={`${done} of ${cards} cards done`}>
           {cards > 0 ? `${done}/${cards}` : ''}
         </span>
 
@@ -459,8 +461,8 @@ function Row(props: RowProps): JSX.Element {
 
       {confirmId === summary.id ? (
         <div
-          className="flex flex-wrap items-center gap-2 border-y border-line bg-sunken py-2 pr-2 text-[13px] text-ink-muted"
-          style={{ paddingLeft: `${depth * 14 + 26}px` }}
+          className="flex flex-wrap items-center gap-2 border-y border-line bg-sunken py-2 pr-2 text-caption text-ink-muted"
+          style={{ paddingLeft: `${depth * 14 + 36}px` }}
         >
           <span>
             Delete “{summary.title}”?
@@ -514,7 +516,7 @@ function RenameField({
           onCancel();
         }
       }}
-      className="my-0.5 min-w-0 flex-1 rounded border border-line bg-raised px-1 py-0.5 text-[13px] text-ink outline-none focus:border-[var(--focus)]"
+      className="karta-field karta-field--sm min-w-0 flex-1"
     />
   );
 }

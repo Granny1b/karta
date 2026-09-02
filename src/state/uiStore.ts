@@ -4,7 +4,14 @@ import { newId } from '@/lib/ids';
 import { readLocal, writeLocal } from '@/lib/storage';
 
 export type ViewMode = 'canvas' | 'kanban';
-export type DialogName = 'import' | 'export' | 'snapshots' | 'search' | 'shortcuts';
+export type DialogName =
+  | 'import'
+  | 'export'
+  | 'snapshots'
+  | 'search'
+  | 'shortcuts'
+  | 'labels'
+  | 'statuses';
 export type Theme = 'light' | 'dark';
 export type ToastKind = 'info' | 'warn' | 'error';
 

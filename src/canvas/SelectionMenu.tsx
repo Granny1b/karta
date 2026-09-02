@@ -295,8 +295,7 @@ const EDGE_MARGIN = 8;
  * Wide enough that *Extract to a nested board* and its key both fit on one
  * line. A menu whose longest item is elided is a menu that has to be guessed at.
  */
-const SURFACE =
-  'nodrag nopan absolute z-[2200] w-[300px] rounded-[var(--radius-md)] border border-line bg-raised p-2 shadow-[shadow:var(--shadow-overlay)]';
+const SURFACE = 'nodrag nopan absolute z-[2200] w-[300px] rounded-md border border-line bg-raised p-2 shadow-overlay';
 
 /** A group heading in the palette's voice, and on the right the key for the group. */
 export function SelectionCaption({
@@ -311,7 +310,7 @@ export function SelectionCaption({
   return (
     <p
       className={cx(
-        'flex items-baseline justify-between gap-2 px-2 pb-1 text-[11px] leading-none text-ink-muted',
+        'flex items-baseline justify-between gap-2 px-2 pb-1 text-meta leading-flat text-ink-muted',
         dim && 'opacity-40',
       )}
       aria-hidden
@@ -323,20 +322,21 @@ export function SelectionCaption({
 }
 
 const ROW =
-  'flex h-7 w-full items-center gap-2 rounded-[var(--radius-sm)] px-2 text-left text-[13px] transition-colors duration-[var(--dur-fast)] ease-linear';
+  'flex h-7 w-full items-center gap-2 rounded px-2 text-left text-caption transition-colors duration-fast ease-linear';
 
 /**
  * The row's own hover, off the same tokens every other control reads. Delete
- * warms to copper on the way in — the one temper colour section 8.1 keeps for
- * a warning — and it is written here rather than borrowed from `.karta-danger`
- * so a utility and a stylesheet are not left to argue over one hover.
+ * warms to the destructive ink on the way in — `--danger`, which is copper by
+ * day and a copper that can still be read by night — and it is written here
+ * rather than borrowed from `.karta-danger` so a utility and a stylesheet are
+ * not left to argue over one hover.
  */
 function rowClass(enabled: boolean, danger: boolean): string {
   if (!enabled) return cx(ROW, 'cursor-default text-ink-muted opacity-40');
   return cx(
     ROW,
-    'group text-ink-muted hover:bg-[var(--surface-hover)]',
-    danger ? 'hover:text-[var(--temper-copper)]' : 'hover:text-ink',
+    'group text-ink-muted hover:bg-hover',
+    danger ? 'hover:text-danger' : 'hover:text-ink',
   );
 }
 
@@ -405,13 +405,13 @@ export function SelectionItemRow({
         className={cx(
           'min-w-0 flex-1 truncate',
           item.enabled && 'text-ink',
-          item.enabled && danger && 'group-hover:text-[var(--temper-copper)]',
+          item.enabled && danger && 'group-hover:text-danger',
         )}
       >
         {item.label}
       </span>
       {showShortcut && item.shortcut !== null ? (
-        <span className="shrink-0 text-[11px] leading-none">{item.shortcut}</span>
+        <span className="shrink-0 text-meta leading-flat">{item.shortcut}</span>
       ) : null}
     </button>
   );
@@ -629,8 +629,7 @@ export function SelectionAffordance(): JSX.Element | null {
       position={Position.Top}
       align="end"
       offset={10}
-      className="nodrag nopan nowheel flex items-center border border-line bg-raised p-0.5"
-      style={{ borderRadius: 'var(--karta-r-surface)', boxShadow: 'var(--karta-overlay-shadow)' }}
+      className="karta-node-toolbar nodrag nopan nowheel flex items-center p-0.5"
     >
       <button
         ref={button}

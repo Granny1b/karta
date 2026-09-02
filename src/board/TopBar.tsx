@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Search,
+import {
   Columns3,
   Download,
   History,
@@ -8,22 +8,24 @@ import { Search,
   Map as MapIcon,
   Moon,
   PanelLeft,
+  Search,
   SlidersHorizontal,
   Sun,
   Upload,
 } from 'lucide-react';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
+import { cx } from '@/canvas/cx';
 import FilterBar from '@/kanban/FilterBar';
 import Breadcrumb from '@/board/Breadcrumb';
 import IconButton from '@/components/IconButton';
+import Tooltip from '@/components/Tooltip';
 
 /** Apple keyboards send Meta for this binding, so the hint has to match. */
 const SEARCH_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
-    ? '\u2318K'
+    ? '⌘K'
     : 'Ctrl K';
-import Tooltip from '@/components/Tooltip';
 
 /**
  * The one bar (spec 8.3): breadcrumb left, view toggle and filter centre, save
@@ -37,7 +39,7 @@ export default function TopBar(): JSX.Element {
   const setDialog = useUiStore((s) => s.setDialog);
 
   return (
-    <header className="flex h-[var(--topbar-h)] shrink-0 items-center gap-2 border-b border-line bg-raised px-2">
+    <header className="flex h-topbar shrink-0 items-center gap-2 border-b border-line bg-raised px-2">
       <div className="flex min-w-0 flex-1 items-center gap-1">
         <IconButton
           label={sidebarOpen ? 'Hide the board list' : 'Show the board list'}
@@ -86,35 +88,33 @@ function SearchBar({ onOpen }: { onOpen(): void }): JSX.Element {
       type="button"
       onClick={onOpen}
       title="Search this board and every board title"
-      className="group flex h-7 w-[168px] shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] border border-line bg-canvas px-2 text-left text-ink-muted transition-colors duration-[var(--dur-fast)] ease-linear hover:border-line-strong hover:text-ink"
+      className="flex h-7 w-[168px] shrink-0 items-center gap-2 rounded border border-line-control bg-canvas px-2 text-left text-caption text-ink-muted transition-colors duration-fast ease-linear hover:bg-hover hover:text-ink"
     >
       <Search size={14} className="shrink-0" aria-hidden />
-      <span className="min-w-0 flex-1 truncate text-[13px]">Search</span>
-      <kbd className="shrink-0 rounded border border-line px-1 font-mono text-[10px] leading-[15px] text-ink-muted">
-        {SEARCH_KEY}
-      </kbd>
+      <span className="min-w-0 flex-1 truncate">Search</span>
+      <kbd className="karta-kbd shrink-0">{SEARCH_KEY}</kbd>
     </button>
   );
 }
 
+/** Canvas or columns: one segmented control, the chosen half in the pressed well. */
 function ViewToggle(): JSX.Element {
   const view = useUiStore((s) => s.view);
   const setView = useUiStore((s) => s.setView);
 
   const item = (active: boolean): string =>
-    `flex h-7 items-center gap-1.5 px-2 text-[13px] ${active ? 'bg-sunken text-ink' : 'text-ink-muted hover:text-ink'}`;
+    cx(
+      'flex h-7 items-center gap-2 px-2 text-caption transition-colors duration-fast ease-linear',
+      active ? 'bg-sunken text-ink' : 'text-ink-muted hover:bg-hover hover:text-ink',
+    );
 
   return (
-    <div
-      role="group"
-      aria-label="View"
-      className="flex overflow-hidden rounded-[var(--radius)] border border-line"
-    >
+    <div role="group" aria-label="View" className="flex overflow-hidden rounded border border-line-control">
       <button type="button" aria-pressed={view === 'canvas'} onClick={() => setView('canvas')} className={item(view === 'canvas')}>
         <MapIcon size={14} />
         Canvas
       </button>
-      <span className="w-px shrink-0 bg-[var(--line)]" aria-hidden />
+      <span className="w-px shrink-0 bg-line-control" aria-hidden />
       <button type="button" aria-pressed={view === 'kanban'} onClick={() => setView('kanban')} className={item(view === 'kanban')}>
         <Columns3 size={14} />
         Columns
@@ -167,10 +167,9 @@ function FilterControl(): JSX.Element | null {
       <button
         type="button"
         aria-expanded={open}
+        aria-haspopup="dialog"
         onClick={() => setOpen((value) => !value)}
-        className={`flex h-7 items-center gap-1.5 rounded-[var(--radius)] border px-2 text-[13px] ${
-          active ? 'border-line-strong text-ink' : 'border-line text-ink-muted hover:text-ink'
-        }`}
+        className={cx('karta-toggle', active && 'is-on')}
       >
         <SlidersHorizontal size={14} />
         Filter
@@ -178,9 +177,9 @@ function FilterControl(): JSX.Element | null {
       </button>
 
       {open ? (
-        <div className="absolute left-1/2 top-full z-40 mt-1 w-[520px] max-w-[92vw] -translate-x-1/2 rounded-[var(--radius)] border border-line bg-raised p-2">
+        <div className="karta-menu absolute left-1/2 top-full z-40 mt-1 w-[520px] max-w-[92vw] -translate-x-1/2 p-2">
           <FilterBar />
-          <p className="mt-2 px-0.5 text-[12px] text-ink-muted">
+          <p className="karta-menu-note mt-2 px-0">
             On the canvas, cards that do not match are dimmed rather than hidden.
           </p>
         </div>
@@ -207,13 +206,15 @@ function SaveState(): JSX.Element | null {
 
   if (saveState === 'conflict') {
     word = 'Conflict';
-    tone = 'text-[var(--temper-copper)]';
+    tone = 'text-danger';
     explanation = 'This board changed somewhere else.';
   } else if (saveState === 'saving') {
     word = 'Saving…';
   } else if (saveState === 'offline') {
     word = 'Offline';
-    tone = 'text-[var(--temper-straw)]';
+    // Straw is a wash under the word, not the word itself: as text it is 2:1
+    // on white, and a state worth naming is a state worth being able to read.
+    tone = 'rounded-xs bg-[color-mix(in_srgb,var(--temper-straw)_22%,var(--surface-raised))] text-ink';
     explanation = 'No connection. Your work is kept on this device and saved when the connection is back.';
   } else if (dirty) {
     word = 'Unsaved';
@@ -223,7 +224,7 @@ function SaveState(): JSX.Element | null {
   }
 
   const label = (
-    <span className={`px-2 text-[13px] ${tone}`} aria-live="polite">
+    <span className={cx('px-2 py-0.5 text-caption', tone)} aria-live="polite">
       {word}
     </span>
   );
@@ -259,8 +260,6 @@ function AccountMenu(): JSX.Element {
   }, [open]);
 
   const name = me?.userDetails ?? '';
-  const item =
-    'flex w-full items-center gap-2 px-2 py-1.5 text-left text-[13px] text-ink hover:bg-sunken disabled:text-ink-muted disabled:hover:bg-transparent';
 
   return (
     <div
@@ -276,20 +275,22 @@ function AccountMenu(): JSX.Element {
       <button
         type="button"
         aria-expanded={open}
+        aria-haspopup="menu"
         aria-label={name ? `Account: ${name}` : 'Account'}
         title={name || 'Account'}
         onClick={() => setOpen((value) => !value)}
-        className="flex h-7 w-7 items-center justify-center rounded-full border border-line bg-sunken text-[11px] font-semibold text-ink-muted hover:text-ink"
+        className="flex h-7 w-7 items-center justify-center rounded-full border border-line-control bg-sunken text-meta font-semibold text-ink-muted transition-colors duration-fast ease-linear hover:text-ink"
       >
         {initialsFor(name)}
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-full z-40 mt-1 w-56 overflow-hidden rounded-[var(--radius)] border border-line bg-raised py-1">
-          {name ? <p className="truncate px-2 pb-1 text-[12px] text-ink-muted">{name}</p> : null}
+        <div role="menu" className="karta-menu absolute right-0 top-full z-40 mt-1 w-56">
+          {name ? <p className="karta-menu-note truncate">{name}</p> : null}
           <button
             type="button"
-            className={item}
+            role="menuitem"
+            className="karta-menu-item"
             disabled={!doc}
             title={doc ? undefined : 'Open a board first'}
             onClick={() => {
@@ -302,7 +303,8 @@ function AccountMenu(): JSX.Element {
           </button>
           <button
             type="button"
-            className={item}
+            role="menuitem"
+            className="karta-menu-item"
             onClick={() => {
               setOpen(false);
               setDialog('shortcuts');
@@ -311,7 +313,8 @@ function AccountMenu(): JSX.Element {
             <Keyboard size={14} />
             Keyboard shortcuts
           </button>
-          <a className={item} href="/.auth/logout?post_logout_redirect_uri=/">
+          <hr className="karta-menu-rule" />
+          <a role="menuitem" className="karta-menu-item" href="/.auth/logout?post_logout_redirect_uri=/">
             <LogOut size={14} />
             Sign out
           </a>

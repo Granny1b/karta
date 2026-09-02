@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Check, Plus } from 'lucide-react';
-import type { ColorToken, Id, LabelDef } from '@/domain/board';
+import { Check, Plus, X } from 'lucide-react';
+import { MAX_NAME, type ColorToken, type Id, type LabelDef } from '@/domain/board';
 import { colorValue, isColorToken } from '@/lib/colors';
+import Button from '@/components/Button';
 import ColorSwatches from '@/card/ColorSwatches';
 
 export interface LabelPickerProps {
@@ -33,9 +34,14 @@ export default function LabelPicker({
     setCreating(false);
   };
 
+  const cancel = (): void => {
+    setCreating(false);
+    setName('');
+  };
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Labels">
         {labels.map((label) => {
           const active = selectedIds.includes(label.id);
           return (
@@ -44,27 +50,30 @@ export default function LabelPicker({
               type="button"
               disabled={disabled}
               aria-pressed={active}
+              title={active ? 'Remove from this card' : 'Put on this card'}
               onClick={() => onToggle(label.id)}
-              className={`flex items-center gap-1.5 rounded border px-2 py-1 text-[13px] disabled:opacity-50 ${
-                active ? 'border-line-strong text-ink' : 'border-line text-ink-muted hover:text-ink'
-              }`}
+              className="karta-toggle group max-w-full"
             >
               <span
-                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                className="h-2.5 w-2.5 shrink-0 rounded-xs"
                 style={{ backgroundColor: colorValue(label.color) }}
+                aria-hidden
               />
-              {label.name}
-              {active ? <Check size={12} strokeWidth={3} /> : null}
+              <span className="min-w-0 truncate">{label.name}</span>
+              {/* Worn: a tick at rest, and a cross under the pointer, so the
+                  chip says what the next click does before it is made. */}
+              {active ? (
+                <span className="shrink-0" aria-hidden>
+                  <Check size={12} strokeWidth={3} className="group-hover:hidden" />
+                  <X size={12} strokeWidth={3} className="hidden group-hover:block" />
+                </span>
+              ) : null}
             </button>
           );
         })}
 
         {creating || disabled ? null : (
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="flex items-center gap-1 rounded border border-dashed border-line px-2 py-1 text-[13px] text-ink-muted hover:text-ink"
-          >
+          <button type="button" onClick={() => setCreating(true)} className="karta-toggle karta-toggle--dashed">
             <Plus size={12} />
             New label
           </button>
@@ -72,11 +81,13 @@ export default function LabelPicker({
       </div>
 
       {creating ? (
-        <div className="flex flex-col gap-2 rounded border border-line p-2">
+        <div className="flex flex-col gap-2 rounded-md border border-line p-2">
           <input
             autoFocus
             value={name}
+            maxLength={MAX_NAME}
             placeholder="Label name"
+            aria-label="Label name"
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -85,36 +96,23 @@ export default function LabelPicker({
               }
               if (e.key === 'Escape') {
                 e.stopPropagation();
-                setCreating(false);
-                setName('');
+                cancel();
               }
             }}
-            className="w-full rounded border border-line bg-raised px-2 py-1 text-[14px] text-ink outline-none focus:border-[var(--focus)]"
+            className="karta-field"
           />
           <ColorSwatches
             tokensOnly
             value={color}
             onChange={(next) => setColor(isColorToken(next) ? next : 'slate')}
           />
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={submit}
-              disabled={name.trim().length === 0}
-              className="rounded border border-line px-2 py-1 text-[13px] text-ink hover:bg-sunken disabled:opacity-50"
-            >
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="primary" onClick={submit} disabled={name.trim().length === 0}>
               Add label
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCreating(false);
-                setName('');
-              }}
-              className="px-1 py-1 text-[13px] text-ink-muted hover:text-ink"
-            >
+            </Button>
+            <Button size="sm" variant="ghost" onClick={cancel}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}

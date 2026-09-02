@@ -90,14 +90,14 @@ export default function Breadcrumb(): JSX.Element {
   const collapsed = ancestors.length - shown.length;
 
   return (
-    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 text-[13px]">
+    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 text-caption">
       {collapsed > 0 ? (
         <>
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
             title={`${collapsed} more board${collapsed === 1 ? '' : 's'} above`}
-            className="rounded px-1 text-ink-muted hover:text-ink"
+            className="h-7 rounded px-1 text-ink-muted transition-colors duration-fast ease-linear hover:bg-hover hover:text-ink"
           >
             …
           </button>
@@ -110,7 +110,7 @@ export default function Breadcrumb(): JSX.Element {
           <button
             type="button"
             onClick={() => navigateToBoard(summary.id)}
-            className="max-w-[16ch] truncate rounded px-1 text-ink-muted hover:text-ink"
+            className="h-7 max-w-[16ch] truncate rounded px-1 text-ink-muted transition-colors duration-fast ease-linear hover:bg-hover hover:text-ink"
           >
             {summary.title}
           </button>
@@ -134,7 +134,7 @@ export default function Breadcrumb(): JSX.Element {
               setRenaming(false);
             }
           }}
-          className="w-[22ch] rounded border border-line bg-raised px-1 py-0.5 font-condensed text-[15px] font-semibold text-ink outline-none focus:border-[var(--focus)]"
+          className="karta-field karta-field--sm w-[22ch] font-condensed text-body font-semibold"
         />
       ) : (
         <button
@@ -145,7 +145,7 @@ export default function Breadcrumb(): JSX.Element {
             setDraft(title);
             setRenaming(true);
           }}
-          className="max-w-[28ch] truncate rounded px-1 font-condensed text-[15px] font-semibold text-ink"
+          className="h-7 max-w-[28ch] truncate rounded px-1 font-condensed text-body font-semibold text-ink transition-colors duration-fast ease-linear hover:bg-hover"
         >
           {title || 'Untitled board'}
         </button>
