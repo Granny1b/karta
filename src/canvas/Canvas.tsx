@@ -23,6 +23,7 @@ import {
   useReactFlow,
   type Connection,
   useStore,
+  useStoreApi,
   type EdgeChange,
   type IsValidConnection,
   type NodeChange,
@@ -96,9 +97,13 @@ import { edgeTypes } from '@/canvas/edges';
 import { nodeTypes } from '@/canvas/nodes';
 import {
   draggedNode,
+  inView,
+  isSettling,
   neighboursOf,
   snapToNeighbours,
+  stepFrom,
   type Rect as AlignRect,
+  type Viewbox,
 } from '@/canvas/alignment';
 import AlignmentGuides, { createGuideTracker } from '@/canvas/AlignmentGuides';
 import { createSubBoardAt } from '@/canvas/createSubBoard';
@@ -235,12 +240,18 @@ function CanvasSurface(): JSX.Element | null {
   const selectionMenuRef = useRef<XYPosition | null>(null);
   selectionMenuRef.current = selectionMenu;
 
-  const { screenToFlowPosition, flowToScreenPosition, fitView, zoomTo, getViewport, getZoom } =
+  const { screenToFlowPosition, flowToScreenPosition, fitView, zoomTo, getViewport } =
     useReactFlow<
     KartaFlowNode,
     KartaFlowEdge
   >();
+  const flowStore = useStoreApi<KartaFlowNode, KartaFlowEdge>();
   const altPressed = useKeyPress('Alt');
+  // Alt is read inside the drag callbacks, which must not take a new identity
+  // every time it goes up or down: React Flow re-adopts its handlers when they
+  // do, and this one changes in the middle of a gesture.
+  const altRef = useRef(altPressed);
+  altRef.current = altPressed;
 
   /* --- selection: read by commands, rendered only as a count -------------- */
 
@@ -348,6 +359,38 @@ function CanvasSurface(): JSX.Element | null {
   const guides = useRef(createGuideTracker()).current;
 
   /**
+   * Where alignment last put the node a drag is holding.
+   *
+   * React Flow never learns about the adjustment — it keeps working the drag
+   * out from the pointer and the grid — so this is the only record of where the
+   * node actually is. The frame that ends the drag, the frame that carries the
+   * contents of a dragged frame, and the write to the document all read it.
+   */
+  const alignedTo = useRef<{ id: Id; x: number; y: number } | null>(null);
+
+  /** Where the node a drag is holding stood before the drag, for `stepFrom`. */
+  const dragOrigin = useRef<{ id: Id; x: number; y: number } | null>(null);
+
+  /**
+   * Put the aligned position back into the frame that ends a drag, which React
+   * Flow sends with its own arithmetic and `dragging` off (see `isSettling`).
+   * Everything else passes through: this is the only frame it can apply to,
+   * because `alignedTo` is only set between the start and the stop of a drag.
+   */
+  const holdAlignment = useCallback(
+    (changes: NodeChange<KartaFlowNode>[]): NodeChange<KartaFlowNode>[] => {
+      const held = alignedTo.current;
+      if (held === null) return changes;
+      if (!changes.some((change) => isSettling(change, held.id))) return changes;
+
+      return changes.map((change) =>
+        isSettling(change, held.id) ? { ...change, position: { x: held.x, y: held.y } } : change,
+      );
+    },
+    [],
+  );
+
+  /**
    * Snap a single-node drag to the neighbours' edges and centres before React
    * Flow applies it, which is the same seam React Flow's own helper-lines
    * example uses. Alt holds it off, exactly as it holds off the grid.
@@ -360,6 +403,15 @@ function CanvasSurface(): JSX.Element | null {
       const drag = draggedNode(changes as { type: string; id?: string; dragging?: boolean; position?: { x: number; y: number } }[]);
       if (drag === null) {
         guides.clear();
+        return holdAlignment(changes);
+      }
+
+      // Alt is the way out of every snap on this surface: it turns off the grid
+      // in React Flow's own props, and it has to turn off this one too, or the
+      // one gesture meant for placing a node exactly still cannot.
+      if (altRef.current) {
+        guides.clear();
+        alignedTo.current = null;
         return changes;
       }
 
@@ -372,23 +424,58 @@ function CanvasSurface(): JSX.Element | null {
       });
 
       const box = size(moving);
-      const rect: AlignRect = { id: drag.id, x: drag.x, y: drag.y, w: box.w, h: box.h };
+      // React Flow has already snapped this to the absolute grid; `stepFrom`
+      // puts it back on the grid the node started from, so the eight-pixel step
+      // is kept without the drift it comes with.
+      const from = dragOrigin.current;
+      const started = from !== null && from.id === drag.id ? from : null;
+      const at =
+        started === null
+          ? { x: drag.x, y: drag.y }
+          : {
+              x: stepFrom(drag.x, started.x, SNAP_GRID[0]),
+              y: stepFrom(drag.y, started.y, SNAP_GRID[1]),
+            };
 
+      const rect: AlignRect = { id: drag.id, x: at.x, y: at.y, w: box.w, h: box.h };
+
+      // The camera, straight out of React Flow's own store: `getBoundingClientRect`
+      // on every pointer move of a drag is a layout read this cannot afford, and
+      // the store already tracks the size through a resize observer.
+      const { transform, width, height } = flowStore.getState();
+      const zoom = transform[2] || 1;
+      const view: Viewbox = {
+        x: -transform[0] / zoom,
+        y: -transform[1] / zoom,
+        w: width / zoom,
+        h: height / zoom,
+      };
+
+      const connected = neighboursOf(drag.id, useBoardStore.getState().doc?.edges ?? []);
       const others: AlignRect[] = [];
       for (const node of current) {
         if (node.id === drag.id || node.hidden === true) continue;
         const s = size(node);
-        others.push({ id: node.id, x: node.position.x, y: node.position.y, w: s.w, h: s.h });
+        const other: AlignRect = {
+          id: node.id,
+          x: node.position.x,
+          y: node.position.y,
+          w: s.w,
+          h: s.h,
+        };
+        // Off-screen nodes are left out: see `inView`. A connected one stays in
+        // wherever it is, because its arrow is on screen either way.
+        if (connected.has(node.id) || inView(other, view)) others.push(other);
       }
 
-      const zoom = getZoom() || 1;
       const snapped = snapToNeighbours(rect, others, {
         threshold: ALIGN_REACH / zoom,
-        connected: neighboursOf(drag.id, useBoardStore.getState().doc?.edges ?? []),
+        connected,
         connectedThreshold: ALIGN_REACH_CONNECTED / zoom,
       });
 
       guides.set(snapped.guides);
+      alignedTo.current = { id: drag.id, x: snapped.x, y: snapped.y };
       if (snapped.x === drag.x && snapped.y === drag.y) return changes;
 
       return changes.map((change) =>
@@ -397,7 +484,7 @@ function CanvasSurface(): JSX.Element | null {
           : change,
       );
     },
-    [getZoom, guides],
+    [flowStore, guides, holdAlignment],
   );
 
   const onNodesChange = useCallback(
@@ -443,6 +530,13 @@ function CanvasSurface(): JSX.Element | null {
 
   const onNodeDragStart: OnNodeDrag<KartaFlowNode> = useCallback((_event, node, dragged) => {
     groupDrag.current = null;
+    // A drag that never reaches the alignment code — a selection, or one held
+    // with Alt — must not inherit the last one's answer.
+    alignedTo.current = null;
+    // React Flow settles the drag threshold before this runs and the first
+    // batch of changes after it, so the position here is the one the node had
+    // before the gesture: the grid `stepFrom` measures from.
+    dragOrigin.current = { id: node.id, x: node.position.x, y: node.position.y };
     const board = node.data.node;
     if (board.kind !== 'group') return;
 
@@ -465,8 +559,13 @@ function CanvasSurface(): JSX.Element | null {
     (_event, node) => {
       const drag = groupDrag.current;
       if (!drag || drag.id !== node.id) return;
-      const dx = node.position.x - drag.origin.x;
-      const dy = node.position.y - drag.origin.y;
+      // The frame's own position is React Flow's, which does not know about the
+      // snap; the contents have to move by the offset the frame actually took,
+      // or they slide out from under it by however far it was nudged.
+      const held = alignedTo.current;
+      const at = held !== null && held.id === node.id ? held : node.position;
+      const dx = at.x - drag.origin.x;
+      const dy = at.y - drag.origin.y;
       // Snapping means most pointer moves land on the offset already applied.
       if (dx === drag.dx && dy === drag.dy) return;
       drag.dx = dx;
@@ -492,6 +591,12 @@ function CanvasSurface(): JSX.Element | null {
       const moved = new Map<Id, XYPosition>();
       for (const item of dragged) moved.set(item.id, item.position);
       moved.set(node.id, node.position);
+      // React Flow reports the position it worked out itself, so the document
+      // would otherwise be told the node is where the snap moved it away from.
+      const held = alignedTo.current;
+      alignedTo.current = null;
+      dragOrigin.current = null;
+      if (held !== null) moved.set(held.id, { x: held.x, y: held.y });
       if (drag) {
         const byId = new Map(nodesRef.current.map((n) => [n.id, n.position]));
         for (const id of drag.members.keys()) {
@@ -686,6 +791,24 @@ function CanvasSurface(): JSX.Element | null {
     // A board link opens its board from inside the node itself; text and shape
     // nodes put the caret in their own words.
     if (kind === 'card' || kind === 'note') useUiStore.getState().openEditor(node.id);
+  }, []);
+
+  /**
+   * With the panel already open, a single click moves it to the card that was
+   * clicked. Opening it still takes a double click — that is what tells the
+   * board a card is wanted rather than selected — but once it is open it is a
+   * window on the selection, and asking for a second double click to move a
+   * window that is already there is asking twice for the same thing.
+   *
+   * Nothing happens for a kind the panel cannot draw: a click on a shape while
+   * a card is open leaves the card, because closing the panel is not what a
+   * click somewhere else has ever meant here.
+   */
+  const onNodeClick: NodeMouseHandler<KartaFlowNode> = useCallback((_event, node) => {
+    const ui = useUiStore.getState();
+    if (ui.editorNodeId === null || ui.editorNodeId === node.id) return;
+    const kind = node.data.node.kind;
+    if (kind === 'card' || kind === 'note') ui.openEditor(node.id);
   }, []);
 
   /* --- clipboard: images (spec 7.3) and nodes (spec 9) ------------------- */
@@ -1214,6 +1337,7 @@ function CanvasSurface(): JSX.Element | null {
               onNodeDragStart={onNodeDragStart}
               onNodeDrag={onNodeDrag}
               onNodeDragStop={onNodeDragStop}
+              onNodeClick={onNodeClick}
               onNodeDoubleClick={onNodeDoubleClick}
               onConnectStart={onConnectStart}
               onConnectEnd={onConnectEnd}

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { draggedNode, neighboursOf, snapToNeighbours, type Rect } from '@/canvas/alignment';
+import {
+  draggedNode,
+  inView,
+  isSettling,
+  neighboursOf,
+  snapToNeighbours,
+  stepFrom,
+  type Rect,
+} from '@/canvas/alignment';
 
 const rect = (id: string, x: number, y: number, w = 240, h = 140): Rect => ({ id, x, y, w, h });
 
@@ -134,5 +142,69 @@ describe('draggedNode', () => {
     expect(draggedNode([{ type: 'position', id: 'a', dragging: false, position: { x: 1, y: 2 } }])).toBeNull();
     expect(draggedNode([{ type: 'dimensions', id: 'a' }])).toBeNull();
     expect(draggedNode([])).toBeNull();
+  });
+});
+
+describe('inView', () => {
+  const view = { x: 0, y: 0, w: 1000, h: 800 };
+
+  it('keeps a neighbour the camera is showing', () => {
+    expect(inView(rect('a', 400, 300), view)).toBe(true);
+  });
+
+  it('keeps one that is only half on screen', () => {
+    expect(inView(rect('a', -100, 300), view)).toBe(true);
+  });
+
+  it('drops one off the edge, guide and all', () => {
+    // Its left edge is level with a card on screen, so without this it would
+    // tug the drag four pixels sideways and draw a line off into the dark.
+    expect(inView(rect('a', 400, 4000), view)).toBe(false);
+    expect(inView(rect('a', -400, 300), view)).toBe(false);
+  });
+});
+
+describe('stepFrom', () => {
+  it('leaves a node that started on the grid where React Flow put it', () => {
+    expect(stepFrom(104, 104, 8)).toBe(104);
+    expect(stepFrom(112, 104, 8)).toBe(112);
+  });
+
+  it('gives back the offset the absolute grid threw away', () => {
+    // A card alignment left at 103: React Flow offers 104, and without this the
+    // card has moved a pixel for a drag that went nowhere.
+    expect(stepFrom(104, 103, 8)).toBe(103);
+    expect(stepFrom(112, 103, 8)).toBe(111);
+    expect(stepFrom(96, 103, 8)).toBe(95);
+  });
+
+  it('holds the step exactly on a half-step origin, which rounds either way', () => {
+    // 4 is four from both 0 and 8. Deriving the step count by rounding twice
+    // sends the node eight pixels away from a pointer that barely moved.
+    expect(stepFrom(8, 4, 8)).toBe(4);
+    expect(stepFrom(0, 4, 8)).toBe(-4);
+    expect(stepFrom(104, 100, 8)).toBe(100);
+  });
+
+  it('is the identity with no grid to speak of', () => {
+    expect(stepFrom(103.5, 100, 0)).toBe(103.5);
+  });
+});
+
+describe('isSettling', () => {
+  const settle = { type: 'position', id: 'a', dragging: false, position: { x: 1, y: 2 } };
+
+  it('finds the frame React Flow sends as the button comes up', () => {
+    expect(isSettling(settle, 'a')).toBe(true);
+  });
+
+  it('is not the drag itself, which alignment has already answered', () => {
+    expect(isSettling({ ...settle, dragging: true }, 'a')).toBe(false);
+  });
+
+  it('leaves every other node and every other kind of change alone', () => {
+    expect(isSettling(settle, 'b')).toBe(false);
+    expect(isSettling({ type: 'select', id: 'a' }, 'a')).toBe(false);
+    expect(isSettling({ type: 'position', id: 'a', dragging: false }, 'a')).toBe(false);
   });
 });
