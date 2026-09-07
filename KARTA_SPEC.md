@@ -708,11 +708,16 @@ React Flow does the heavy lifting. What is configured:
 - `minZoom: 0.1`, `maxZoom: 2.5`, `zoomOnScroll` with ctrl/cmd, trackpad pinch, `Space` + drag
   to pan, `onlyRenderVisibleElements: true`.
 - Background: dot grid, 24 px, that fades out below zoom 0.4.
-- Snapping: 8 px grid, held off while `Alt` is down. On top of it, a single-node drag snaps to the
-  edges and centres of nearby nodes and draws a guide for each line it caught. A node joined to the
-  dragged one by an arrow is matched on its centre alone and with a much wider catch — a handle sits
-  at the midpoint of a side, so centre-to-centre is the only alignment that straightens an arrow,
-  and putting a card back where its arrow runs straight is what the gesture is for. Dragging a
+- Snapping: 8 px steps, held off while `Alt` is down — measured from where the node stood rather
+  than from an absolute grid, so a card alignment left off the grid keeps its offset and a drag out
+  and back changes nothing. On top of it, a single-node drag snaps to the edges and centres of
+  nearby nodes and draws a guide for each line it caught. A node joined to the dragged one by an
+  arrow is matched on its centre alone and with a much wider catch — a handle sits at the midpoint
+  of a side, so centre-to-centre is the only alignment that straightens an arrow, and putting a card
+  back where its arrow runs straight is what the gesture is for. Only nodes the camera is showing
+  are matched, unless an arrow joins them: an alignment the eye cannot check is not an alignment,
+  and on a large board there is always something a few pixels off a line. What the snap does is what
+  the board keeps — the position shown while dragging is the one written on release. Dragging a
   selection keeps the plain grid: snapping a group to a neighbour would change its internal spacing.
 - Selection: click, shift-click to add, drag-marquee on empty canvas, `Ctrl+A`.
 - Multi-select drag moves everything selected; arrow keys nudge 8 px, `Shift` + arrows 1 px.
@@ -876,6 +881,9 @@ Sentence case everywhere. No tracked-out capitals, no eyebrow labels above headi
 - The left sidebar (board tree) is collapsed by default and opens over the canvas, not beside
   it — the canvas never resizes when navigating.
 - The card editor is a right-hand panel, 380 px, that slides in. Double-click a card to open.
+  While it is open a single click on another card moves it there: it is a window on the
+  selection once it exists, and asking for a second double-click to move a window already on
+  screen is asking twice for the same thing. A click on a kind it cannot draw leaves it be.
 - Everything that floats over the canvas — the shape palette top-left, the status dock
   bottom-left, the view toolbar bottom-centre, the zoom controls bottom-right — sits on one
   12 px inset from the edge it belongs to. Four corners each choosing their own inset is the

@@ -43,6 +43,14 @@ export interface AlignResult {
   readonly guides: readonly Guide[];
 }
 
+/** The camera's window onto the board, in flow coordinates. */
+export interface Viewbox {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
 export interface AlignOptions {
   /** Catch distance in flow units for an unconnected node. */
   readonly threshold: number;
@@ -158,6 +166,25 @@ export function snapToNeighbours(
 }
 
 /**
+ * Whether a rectangle is on screen.
+ *
+ * An alignment the eye cannot check is not an alignment. On a board of any size
+ * some node is nearly always a few pixels from a line, so without this the drag
+ * is tugged about by neighbours that are not being looked at, and the guide
+ * that explains it runs off the edge of the screen into the dark. The caller
+ * keeps the connected nodes whatever the camera is showing: their arrow is the
+ * feedback there, and straightening it is the whole point of the gesture.
+ */
+export function inView(rect: Rect, view: Viewbox): boolean {
+  return (
+    rect.x < view.x + view.w &&
+    view.x < rect.x + rect.w &&
+    rect.y < view.y + view.h &&
+    view.y < rect.y + rect.h
+  );
+}
+
+/**
  * The nodes joined to `id` by an edge, in either direction. Straightening an
  * arrow is symmetric — it does not matter which end is being dragged.
  */
@@ -182,6 +209,45 @@ export interface PositionChange {
   readonly id?: string;
   readonly dragging?: boolean;
   readonly position?: { readonly x: number; readonly y: number };
+}
+
+/**
+ * A grid-snapped position, put back on the grid that runs through `origin`.
+ *
+ * React Flow snaps a drag to the absolute grid, which throws away whatever
+ * offset the node already had. A card alignment left at 103 is pulled to 104 by
+ * the first pointer move; drag it eight across and eight back and it has
+ * quietly moved a pixel, and an undo entry says so. Off-grid is where alignment
+ * puts things — a centre line is not a multiple of eight — so the absolute grid
+ * spends its time undoing the snap that matters.
+ *
+ * The step stays eight; it is just measured from where the node started. A drag
+ * that returns is then a drag that changed nothing, and alignment owns the
+ * fine position it was written to own.
+ */
+export function stepFrom(value: number, origin: number, step: number): number {
+  if (!(step > 0)) return value;
+  return value + origin - Math.round(origin / step) * step;
+}
+
+/**
+ * True when this change is the frame React Flow sends as a drag is released.
+ *
+ * React Flow works out a drag position itself, from the pointer and the grid,
+ * and sends that figure once more with `dragging` off when the button comes up.
+ * That last frame does not pass through `draggedNode`, so unless the caller
+ * puts the aligned position back into it the node hops off the guide it was
+ * sitting on at the exact moment it is let go — and whatever reads the same
+ * frame to write the document writes the hop with it. A snap has to survive
+ * the release to have happened at all.
+ */
+export function isSettling(change: PositionChange, id: Id): boolean {
+  return (
+    change.type === 'position' &&
+    change.id === id &&
+    change.dragging !== true &&
+    change.position !== undefined
+  );
 }
 
 /**
