@@ -779,6 +779,12 @@ remembered locally.
   each card with its board name.
 - Dragging between columns sets `statusId`; dragging within a column sets `rank`. Canvas
   positions are never touched by the kanban view, and vice versa.
+- The progress chip on a card opens its checklist in place, to be read and ticked without the
+  editor panel: working through a checklist is a column at a time, and the panel is a card at a
+  time. Several cards can be open at once. Adding, renaming, reordering and deleting items stay
+  in the panel — none of them is what somebody is doing while working down a column, and a
+  276 px card has no room to offer them. A card borrowed from a nested board shows its
+  checklist but cannot be ticked, like everything else about it.
 - Filter bar: text, label, status, has-due-date, has-unfinished-checklist. The same filter
   applies on the canvas as a dimming overlay rather than by hiding nodes, so the layout never
   jumps.

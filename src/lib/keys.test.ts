@@ -5,14 +5,18 @@ import { matchShortcut } from '@/lib/keys';
 class FakeElement {
   tagName: string;
   isContentEditable = false;
-  constructor(tag: string) {
+  /** Only meaningful on an `input`; the browser normalises it to `text`. */
+  type: string;
+  constructor(tag: string, type = 'text') {
     this.tagName = tag;
+    this.type = type;
   }
 }
 (globalThis as unknown as { HTMLElement: unknown }).HTMLElement = FakeElement;
 
 const canvas = new FakeElement('DIV');
 const field = new FakeElement('INPUT');
+const tickBox = new FakeElement('INPUT', 'checkbox');
 
 function press(key: string, modifiers: Partial<KeyboardEvent> = {}, target: unknown = canvas): KeyboardEvent {
   return {
@@ -56,5 +60,20 @@ describe('matchShortcut', () => {
     expect(matchShortcut(press('n', {}, field))).toBe(null);
     expect(matchShortcut(press('Delete', {}, field))).toBe(null);
     expect(matchShortcut(press('Escape', {}, field))).toBe('escape');
+  });
+
+  /*
+   * An input that holds no text is not somebody typing. Ticking a checklist
+   * item leaves focus on the box, and Ctrl+Z there has to mean what it means
+   * everywhere else on the board — the tick was the thing to take back.
+   */
+  it('still answers a shortcut from a checkbox, which holds no text to protect', () => {
+    expect(matchShortcut(press('z', { ctrlKey: true }, tickBox))).toBe('undo');
+    expect(matchShortcut(press('z', { ctrlKey: true }, field))).toBe(null);
+  });
+
+  it('leaves a select alone, where letters and arrows walk the options', () => {
+    const menu = new FakeElement('SELECT');
+    expect(matchShortcut(press('n', {}, menu))).toBe(null);
   });
 });

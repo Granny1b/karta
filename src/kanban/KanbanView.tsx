@@ -53,6 +53,13 @@ export default function KanbanView(): JSX.Element {
   const [includeNested, setIncludeNested] = useState(false);
   const [dragCardId, setDragCardId] = useState<Id | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  /*
+   * Which cards are showing their checklist. Held here rather than in the card
+   * so it survives the card being re-rendered by a drag, a filter or an edit —
+   * a row that closed itself because something else changed would be worse
+   * than not opening at all.
+   */
+  const [expanded, setExpanded] = useState<ReadonlySet<Id>>(() => new Set());
 
   const nested = useNestedCards(includeNested, boardId);
 
@@ -152,6 +159,29 @@ export default function KanbanView(): JSX.Element {
 
     if (sameColumn) updateNode(cardId, { rank }, 'Reorder card');
     else updateNode(cardId, { statusId: column.statusId, rank }, 'Move card');
+  };
+
+  const toggleExpand = (cardId: Id): void => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (!next.delete(cardId)) next.add(cardId);
+      return next;
+    });
+  };
+
+  /**
+   * Tick one item, in place. The undo labels are the ones the panel's own
+   * checklist writes, so a tick made here and a tick made there are the same
+   * entry in the same stack rather than two names for one act.
+   */
+  const toggleItem = (card: CardNode, itemId: Id): void => {
+    const item = card.checklist.find((candidate) => candidate.id === itemId);
+    if (!item) return;
+    updateNode(
+      card.id,
+      { checklist: card.checklist.map((c) => (c.id === itemId ? { ...c, done: !c.done } : c)) },
+      item.done ? 'Uncheck item' : 'Check item',
+    );
   };
 
   const addCardTo = (column: Column): void => {
@@ -267,7 +297,10 @@ export default function KanbanView(): JSX.Element {
                           card={card}
                           labels={doc?.labels ?? []}
                           dragging={dragCardId === card.id}
+                          expanded={expanded.has(card.id)}
                           onOpen={() => openEditor(card.id)}
+                          onToggleExpand={() => toggleExpand(card.id)}
+                          onToggleItem={(itemId) => toggleItem(card, itemId)}
                           onDragStart={(e) => {
                             e.dataTransfer.effectAllowed = 'move';
                             e.dataTransfer.setData('text/plain', card.title);
@@ -295,6 +328,8 @@ export default function KanbanView(): JSX.Element {
                         labels={doc?.labels ?? []}
                         boardTitle={entry.boardTitle}
                         readOnly
+                        expanded={expanded.has(entry.card.id)}
+                        onToggleExpand={() => toggleExpand(entry.card.id)}
                       />
                     ))}
                   </div>

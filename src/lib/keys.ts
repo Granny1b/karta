@@ -29,9 +29,36 @@ export type ShortcutName =
 
 const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
+/**
+ * The `input` types that hold no text. A checkbox has no caret, no selection
+ * and no undo of its own, so a shortcut that arrives while one has focus was
+ * never meant for the control — it was meant for the board.
+ *
+ * This used to swallow them all. Ticking a checklist item and reaching for
+ * Ctrl+Z did nothing whatsoever, because focus was sitting on the box that had
+ * just been ticked and every shortcut was being handed to it. A `select` is
+ * not on this list: letters and arrows there really do walk its options.
+ */
+const UNTYPED_INPUTS = new Set([
+  'checkbox',
+  'radio',
+  'button',
+  'submit',
+  'reset',
+  'file',
+  'color',
+  'range',
+  'image',
+]);
+
 /** True when the event originated inside a text field or a rich-text surface. */
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
+  if (target.tagName === 'INPUT') {
+    // Anything unrecognised is a text field: `type` normalises to `text`.
+    const type = (target as HTMLInputElement).type;
+    return !UNTYPED_INPUTS.has(typeof type === 'string' ? type.toLowerCase() : 'text');
+  }
   if (EDITABLE_TAGS.has(target.tagName)) return true;
   return target.isContentEditable;
 }
