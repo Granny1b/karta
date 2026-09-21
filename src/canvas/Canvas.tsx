@@ -108,6 +108,7 @@ import {
 import AlignmentGuides, { createGuideTracker } from '@/canvas/AlignmentGuides';
 import { createSubBoardAt } from '@/canvas/createSubBoard';
 import { planBoardDeletion, type DeletionPlan, type DoomedBoard } from '@/canvas/deleteBoards';
+import { deleteBoardsAndDescendants } from '@/board/deleteBoard';
 import DeleteBoardsDialog from '@/canvas/DeleteBoardsDialog';
 import {
   describeSelection,
@@ -910,10 +911,10 @@ function CanvasSurface(): JSX.Element | null {
    * Remove the nodes and edges, and the boards behind any links among them.
    *
    * A link is a doorway and the board is the room: deleting the tile deletes
-   * the board too, which is what "delete this" means when the tile is the only
-   * thing on the canvas representing it. A board with anything on it stops for
-   * a question first, because a tile the size of a card can be hiding a great
-   * deal of work.
+   * the board too — and the rooms behind *its* doorways, which would otherwise
+   * be left live with nothing leading to them. A board with anything on it
+   * stops for a question first, because a tile the size of a card can be hiding
+   * a great deal of work.
    */
   const purge = useCallback(
     async (nodeIds: Id[], edgeIds: Id[], boards: readonly DoomedBoard[]): Promise<void> => {
@@ -924,27 +925,26 @@ function CanvasSurface(): JSX.Element | null {
       const deletable = boards.filter((b) => b.known);
       if (deletable.length === 0) return;
 
-      // The nodes are already gone locally; the boards are separate documents
-      // and each needs its own call. One failure must not hide the others, so
-      // they are settled together and reported once.
-      const results = await Promise.allSettled(deletable.map((b) => api.deleteBoard(b.boardId)));
-      const failed = results.filter((r) => r.status === 'rejected').length;
-
-      await store.loadIndex();
+      // The tiles are already gone locally; the boards are separate documents,
+      // as is every board nested inside them, and one failure must not hide the
+      // others — so the whole thing is settled together and reported once.
+      const { deleted, failed } = await deleteBoardsAndDescendants(
+        deletable.map((b) => b.boardId),
+      );
 
       const ui = useUiStore.getState();
       if (failed > 0) {
         ui.toast(
-          failed === deletable.length
+          deleted.length === 0
             ? 'The links were removed, but the boards could not be deleted.'
-            : `${failed} of ${deletable.length} boards could not be deleted.`,
+            : `${failed} of ${failed + deleted.length} boards could not be deleted.`,
           'error',
         );
       } else {
         ui.toast(
-          deletable.length === 1
+          deleted.length === 1
             ? 'Board deleted. Storage keeps it for 14 days.'
-            : `${deletable.length} boards deleted. Storage keeps them for 14 days.`,
+            : `${deleted.length} boards deleted, nested boards included. Storage keeps them for 14 days.`,
         );
       }
     },

@@ -1,21 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { SCHEMA_VERSION, type BoardIndex, type BoardNode } from '@/domain/board';
-import { describeContents, planBoardDeletion } from '@/canvas/deleteBoards';
+import { describeContents } from '@/board/boardSubtree';
+import { planBoardDeletion } from '@/canvas/deleteBoards';
 import { makeBoardLink, makeCard } from '@/state/factories';
 
 const index = (
-  boards: { id: string; title: string; cards?: number; children?: number; deleted?: boolean }[],
+  boards: { id: string; title: string; cards?: number; parent?: string; deleted?: boolean }[],
 ): BoardIndex => ({
   schemaVersion: SCHEMA_VERSION,
   updatedAt: '2026-01-01T00:00:00.000Z',
   boards: boards.map((b) => ({
     id: b.id,
-    parentBoardId: null,
+    parentBoardId: b.parent ?? null,
     title: b.title,
     icon: null,
     updatedAt: '2026-01-01T00:00:00.000Z',
     deletedAt: b.deleted === true ? '2026-01-02T00:00:00.000Z' : null,
-    counts: { cards: b.cards ?? 0, done: 0, children: b.children ?? 0 },
+    // `children` is the index's own direct-child rollup and is not what the
+    // plan counts: nesting is read from `parentBoardId`, at every depth.
+    counts: { cards: b.cards ?? 0, done: 0, children: 0 },
     ownerId: 'u1',
   })),
 });
@@ -53,8 +56,40 @@ describe('planBoardDeletion', () => {
 
   it('flags a board holding nested boards too', () => {
     const node = link('b1');
-    const plan = planBoardDeletion([node.id], [node], index([{ id: 'b1', title: 'World', children: 2 }]));
+    const plan = planBoardDeletion(
+      [node.id],
+      [node],
+      index([
+        { id: 'b1', title: 'World' },
+        { id: 'b2', title: 'Zones', parent: 'b1' },
+        { id: 'b3', title: 'Spawns', parent: 'b1' },
+      ]),
+    );
     expect(plan.withContent.map((b) => b.title)).toEqual(['World']);
+    expect(plan.boards[0]?.children).toBe(2);
+  });
+
+  it('counts nested boards all the way down, and the cards on all of them', () => {
+    // Deleting the tile deletes the board *and* what is nested inside it, so
+    // the question asked first has to add up the whole subtree — a board that
+    // looks empty can be holding three boards' worth of work one level down.
+    const node = link('b1');
+    const plan = planBoardDeletion(
+      [node.id],
+      [node],
+      index([
+        { id: 'b1', title: 'Systems', cards: 1 },
+        { id: 'b2', title: 'Netcode', parent: 'b1', cards: 4 },
+        { id: 'b3', title: 'Serialization', parent: 'b2', cards: 5 },
+        { id: 'b4', title: 'Gone', parent: 'b1', cards: 9, deleted: true },
+        { id: 'b5', title: 'Elsewhere', cards: 7 },
+      ]),
+    );
+    expect(plan.boards[0]?.children).toBe(2);
+    // A board already deleted is not deleted again, and its cards are not
+    // counted as something about to be lost.
+    expect(plan.boards[0]?.cards).toBe(10);
+    expect(describeContents(plan.boards[0]!)).toBe('10 cards and 2 nested boards');
   });
 
   it('deletes a board once even when two links point at it', () => {
@@ -102,26 +137,5 @@ describe('planBoardDeletion', () => {
     );
     expect(plan.boards).toHaveLength(2);
     expect(plan.withContent.map((x) => x.title)).toEqual(['Full']);
-  });
-});
-
-describe('describeContents', () => {
-  const base = { linkNodeId: 'n', boardId: 'b', title: 'T', known: true };
-
-  it('says empty when it is', () => {
-    expect(describeContents({ ...base, cards: 0, children: 0 })).toBe('empty');
-  });
-
-  it('counts cards, singular and plural', () => {
-    expect(describeContents({ ...base, cards: 1, children: 0 })).toBe('1 card');
-    expect(describeContents({ ...base, cards: 4, children: 0 })).toBe('4 cards');
-  });
-
-  it('counts nested boards', () => {
-    expect(describeContents({ ...base, cards: 0, children: 1 })).toBe('1 nested board');
-  });
-
-  it('names both when a board has both', () => {
-    expect(describeContents({ ...base, cards: 2, children: 3 })).toBe('2 cards and 3 nested boards');
   });
 });
