@@ -1,15 +1,17 @@
 import { useState } from 'react';
-import { describeContents, type DoomedBoard } from '@/canvas/deleteBoards';
+import { describeContents } from '@/board/boardSubtree';
+import type { DoomedBoard } from '@/canvas/deleteBoards';
 import Dialog from '@/components/Dialog';
 import Button from '@/components/Button';
 
 /**
  * The safety question before a board goes with its link.
  *
- * Deleting a tile the size of a card can take a board full of work with it, so
- * a board holding anything is worth stopping for. The two ways forward are both
- * offered plainly, because either can be what was meant: take the board too, or
- * take only the doorway and leave the board in the sidebar.
+ * Deleting a tile the size of a card can take a board full of work with it —
+ * and the boards nested inside that one — so a board holding anything is worth
+ * stopping for. The two ways forward are both offered plainly, because either
+ * can be what was meant: take the board too, or take only the doorway and leave
+ * the board in the sidebar.
  *
  * Only reached when something would actually be lost — deleting links to empty
  * boards does not ask, since there is nothing to warn about.
@@ -60,7 +62,8 @@ export default function DeleteBoardsDialog({
 
       {boards.some((b) => b.children > 0) ? (
         <p className="mt-3 text-caption text-ink-muted">
-          Boards nested inside are not deleted. They stay in the sidebar.
+          Boards nested inside go with them — a board with nothing leading to it is worse than
+          one that is gone. Removing only the link leaves all of them where they are.
         </p>
       ) : null}
 

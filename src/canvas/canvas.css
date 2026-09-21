@@ -640,6 +640,25 @@
 }
 
 /*
+ * A doorway whose room is gone.
+ *
+ * The delete normally takes the tile with it, so this is the leftover case: the
+ * write that would have removed it was refused, or the board went in another
+ * tab. Dashed and faded, because a tile that looks like every other tile is a
+ * tile people keep clicking — and it no longer opens anything.
+ */
+.karta-boardlink.is-gone {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  opacity: 0.6;
+}
+
+.karta-boardlink.is-gone .karta-card-title {
+  text-decoration: line-through;
+  text-decoration-color: var(--line-strong);
+}
+
+/*
  * The board tile's settings gear.
  *
  * Top-right corner, inside the tile. The bottom edge belongs to the connection

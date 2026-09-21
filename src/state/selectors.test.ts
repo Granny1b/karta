@@ -57,14 +57,71 @@ describe('boardTree', () => {
     expect(tree[1].children.map((c) => c.summary.id)).toEqual(['c']);
   });
 
-  it('survives a cyclic parent chain', () => {
+  it('survives a cyclic parent chain, and keeps both boards reachable', () => {
+    // A's parent is B and B's parent is A, so neither is a root and the walk
+    // down from the roots never reaches either. They used to vanish from the
+    // tree entirely — two real boards with no way left to open them. One is
+    // lifted instead, and the other hangs under it.
     const index: BoardIndex = {
       schemaVersion: SCHEMA_VERSION,
       updatedAt: '2026-01-01T00:00:00.000Z',
       boards: [summary('a', 'b', 'A'), summary('b', 'a', 'B')],
     };
     expect(() => boardTree(index)).not.toThrow();
-    expect(boardTree(index)).toEqual([]);
+
+    const tree = boardTree(index);
+    expect(tree.map((t) => t.summary.id)).toEqual(['a']);
+    expect(tree[0]?.detached).toBe(true);
+    expect(tree[0]?.children.map((c) => c.summary.id)).toEqual(['b']);
+  });
+
+  it('shows every live board exactly once, however broken the parent links are', () => {
+    const index: BoardIndex = {
+      schemaVersion: SCHEMA_VERSION,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      boards: [
+        summary('root', null, 'Root'),
+        summary('child', 'root', 'Child'),
+        summary('orphan', 'vanished', 'Orphan'),
+        summary('self', 'self', 'Self'),
+        summary('cycle-a', 'cycle-b', 'Cycle A'),
+        summary('cycle-b', 'cycle-a', 'Cycle B'),
+        summary('deleted', null, 'Deleted', '2026-01-01T00:00:00.000Z'),
+      ],
+    };
+
+    const seen: string[] = [];
+    const walk = (nodes: ReturnType<typeof boardTree>): void => {
+      for (const node of nodes) {
+        seen.push(node.summary.id);
+        walk(node.children);
+      }
+    };
+    walk(boardTree(index));
+
+    expect(seen.slice().sort()).toEqual(['child', 'cycle-a', 'cycle-b', 'orphan', 'root', 'self']);
+    expect(new Set(seen).size).toBe(seen.length);
+  });
+
+  it('flags the boards it had to lift, and only those', () => {
+    // Deleting a board used to leave its children at the top level with nothing
+    // saying why, which reads as the panel being broken rather than as a
+    // consequence of the delete.
+    const index: BoardIndex = {
+      schemaVersion: SCHEMA_VERSION,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      boards: [
+        summary('root', null, 'Root'),
+        summary('child', 'root', 'Child'),
+        summary('orphan', 'vanished', 'Orphan'),
+      ],
+    };
+
+    const tree = boardTree(index);
+    const byId = new Map(tree.map((t) => [t.summary.id, t]));
+    expect(byId.get('orphan')?.detached).toBe(true);
+    expect(byId.get('root')?.detached).toBe(false);
+    expect(byId.get('root')?.children[0]?.detached).toBe(false);
   });
 });
 

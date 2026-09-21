@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, FolderPlus, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderPlus, Plus, Sparkles, Trash2, Unlink, X } from 'lucide-react';
 import { cx } from '@/canvas/cx';
 import { DEFAULT_NODE_SIZE, type BoardNode, type BoardSummary, type Id } from '@/domain/board';
 import { ApiError, api } from '@/lib/api';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
 import { renameBoard } from '@/board/renameBoard';
+import { boardToOpenAfterDelete, describeContents, subtreeTotals } from '@/board/boardSubtree';
+import { deleteBoardsAndDescendants } from '@/board/deleteBoard';
 import { makeBoardLink } from '@/state/factories';
 import { boardTree, type TreeNode } from '@/state/selectors';
 import { navigateToBoard } from '@/routes';
@@ -262,27 +264,50 @@ export default function SidebarTree(): JSX.Element | null {
     [boardId, loadIndex, mutate, save, summaries],
   );
 
+  /**
+   * Delete a board and everything nested inside it (`deleteBoardsAndDescendants`
+   * says why), then land somewhere that still exists — which is not only about
+   * the board being deleted: the board on screen may have been *inside* it.
+   */
   const remove = useCallback(
     async (id: Id) => {
       setConfirmId(null);
       setBusy(true);
       try {
-        await api.deleteBoard(id);
-        await loadIndex();
-        if (id === boardId) {
-          const next = useBoardStore
-            .getState()
-            .index?.boards.find((b) => b.deletedAt === null && b.id !== id);
-          if (next) navigateToBoard(next.id, { replace: true });
+        const name = summaries.find((b) => b.id === id)?.title ?? 'The board';
+        const nested = subtreeTotals(index, id).boards;
+        const { deleted, failed, doorwaysLeft } = await deleteBoardsAndDescendants([id]);
+
+        const state = useBoardStore.getState();
+        const next = boardToOpenAfterDelete(state.index, state.boardId);
+        if (next !== null) navigateToBoard(next, { replace: true });
+
+        if (failed > 0) {
+          toast(
+            deleted.length === 0
+              ? `“${name}” could not be deleted.`
+              : `${failed} of ${failed + deleted.length} boards could not be deleted.`,
+            'error',
+          );
+        } else if (doorwaysLeft > 0) {
+          toast(
+            `Deleted “${name}”, but the tile that opened it could not be taken off its parent board.`,
+            'warn',
+          );
+        } else {
+          toast(
+            nested === 0
+              ? `Deleted “${name}”. It is recoverable from storage for 14 days.`
+              : `Deleted “${name}” and the ${nested} board${nested === 1 ? '' : 's'} nested inside it. Recoverable from storage for 14 days.`,
+          );
         }
-        toast('Board deleted. It is recoverable from storage for 14 days.');
       } catch (err) {
         report(err, 'Could not delete the board');
       } finally {
         setBusy(false);
       }
     },
-    [boardId, loadIndex, report, toast],
+    [index, report, summaries, toast],
   );
 
   const fromTemplate = useCallback(async () => {
@@ -373,6 +398,22 @@ export default function SidebarTree(): JSX.Element | null {
   );
 }
 
+/**
+ * What deleting a row would take with it, read straight off the tree: the
+ * boards nested under it at every level, and the cards on all of them. The
+ * question has to be answered before the click, not after.
+ */
+function contentsOf(node: TreeNode): { cards: number; children: number } {
+  let cards = node.summary.counts.cards;
+  let children = 0;
+  for (const child of node.children) {
+    const inner = contentsOf(child);
+    cards += inner.cards;
+    children += 1 + inner.children;
+  }
+  return { cards, children };
+}
+
 interface RowProps {
   node: TreeNode;
   depth: number;
@@ -396,6 +437,8 @@ function Row(props: RowProps): JSX.Element {
   const isOpen = expanded.has(summary.id);
   const isCurrent = summary.id === currentId;
   const { done, cards } = summary.counts;
+  const asking = confirmId === summary.id;
+  const holds = asking ? contentsOf(node) : { cards: 0, children: 0 };
 
   return (
     <div>
@@ -426,12 +469,19 @@ function Row(props: RowProps): JSX.Element {
             type="button"
             onClick={() => props.onOpen(summary.id)}
             onDoubleClick={() => props.onStartRename(summary.id)}
-            title={`${summary.title} — double-click to rename`}
+            title={
+              node.detached
+                ? `${summary.title} — the board this was nested in is gone, so it sits at the top level. Double-click to rename.`
+                : `${summary.title} — double-click to rename`
+            }
             className={cx(
               'h-7 min-w-0 flex-1 truncate text-left text-caption',
               isCurrent ? 'text-ink' : 'text-ink-muted group-hover:text-ink',
             )}
           >
+            {node.detached ? (
+              <Unlink size={11} className="mr-1 inline-block shrink-0 align-[-1px] text-ink-muted" aria-hidden />
+            ) : null}
             {summary.icon ? <span className="mr-1">{summary.icon}</span> : null}
             {summary.title}
           </button>
@@ -459,14 +509,16 @@ function Row(props: RowProps): JSX.Element {
         </span>
       </div>
 
-      {confirmId === summary.id ? (
+      {asking ? (
         <div
           className="flex flex-wrap items-center gap-2 border-y border-line bg-sunken py-2 pr-2 text-caption text-ink-muted"
           style={{ paddingLeft: `${depth * 14 + 36}px` }}
         >
           <span>
             Delete “{summary.title}”?
-            {children.length > 0 ? ` Its ${children.length} nested board${children.length === 1 ? '' : 's'} move to the top level.` : ''}
+            {holds.cards > 0 || holds.children > 0
+              ? ` It holds ${describeContents(holds)}, and all of it goes. Recoverable from storage for 14 days.`
+              : ''}
           </span>
           <Button size="sm" variant="danger" disabled={busy} onClick={() => props.onDelete(summary.id)}>
             Delete

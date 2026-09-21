@@ -17,6 +17,7 @@ import { takeRenameOnMount } from '@/canvas/createSubBoard';
 import { clickedOutside } from '@/canvas/dismiss';
 import { useSoleNodeSelected } from '@/canvas/soleSelection';
 import { useBoardStore } from '@/state/boardStore';
+import { useUiStore } from '@/state/uiStore';
 import { isEditableTarget } from '@/lib/keys';
 import { TEMPER_TOKENS, colorValue } from '@/lib/colors';
 import { cx } from '@/canvas/cx';
@@ -33,6 +34,20 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
   const sole = useSoleNodeSelected();
   const accent = colorValue(link.color);
   const counts = link.cachedCounts;
+
+  /*
+   * A tile whose board has been deleted. Normally the delete takes the doorway
+   * with it, but a tile can outlive its board: the write that would have
+   * removed it was refused, or the board went in another tab. So the tile says
+   * so and stops leading anywhere, rather than opening a board that is gone.
+   *
+   * Only ever on a board the index *knows* is deleted — a board it has not
+   * heard of yet is the ordinary state of one created a second ago.
+   */
+  const gone = useBoardStore((s) => {
+    const summary = s.index?.boards.find((b) => b.id === link.targetBoardId);
+    return summary !== undefined && summary.deletedAt !== null;
+  });
 
   // Renaming here renames the board, not the tile: `cachedTitle` is a copy the
   // index refreshes, so writing only to it would be undone on the next poll.
@@ -86,9 +101,11 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
   }, [menuOpen]);
 
   const beginRename = useCallback((): void => {
-    if (link.locked) return;
+    // Renaming writes to the board, not the tile, so there is nothing to write
+    // to once the board is gone.
+    if (link.locked || gone) return;
     setDraft(link.cachedTitle);
-  }, [link.cachedTitle, link.locked]);
+  }, [gone, link.cachedTitle, link.locked]);
 
   const commitRename = useCallback(
     (value: string): void => {
@@ -154,21 +171,33 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
   const open = useCallback(
     (event: MouseEvent) => {
       event.stopPropagation();
+      if (gone) {
+        useUiStore
+          .getState()
+          .toast('That board was deleted. Delete this tile to tidy it away.', 'warn');
+        return;
+      }
       navigateToBoard(link.targetBoardId);
     },
-    [navigateToBoard, link.targetBoardId],
+    [gone, navigateToBoard, link.targetBoardId],
   );
 
   const root = cx(
     'karta-node karta-boardlink',
     `karta-lod-${lod}`,
+    gone && 'is-gone',
     selected && 'is-selected',
     dragging && 'is-dragging',
   );
 
   if (lod === 'block') {
     return (
-      <div className={cx(root, 'karta-block')} style={{ background: accent }} onDoubleClick={open} title={title}>
+      <div
+        className={cx(root, 'karta-block')}
+        style={{ background: accent }}
+        onDoubleClick={open}
+        title={gone ? `${title} — this board was deleted` : title}
+      >
         <NodeHandles connectable={!link.locked} />
       </div>
     );
@@ -241,7 +270,13 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
     <div
       className={root}
       onDoubleClick={editing ? undefined : open}
-      title={editing ? undefined : `${title} — double-click to open, F2 to rename`}
+      title={
+        editing
+          ? undefined
+          : gone
+            ? `${title} — this board was deleted`
+            : `${title} — double-click to open, F2 to rename`
+      }
     >
       <span className="karta-colorbar" style={{ background: accent }} aria-hidden />
 
@@ -290,11 +325,13 @@ function BoardLinkNodeView({ data, selected, dragging }: NodeProps<BoardLinkFlow
         </div>
         {lod !== 'title' && (
           <div className="text-control text-ink-muted">
-            {counts && counts.total > 0
-              ? `${counts.done} of ${counts.total} done`
-              : counts
-                ? 'No cards yet'
-                : 'Nested board'}
+            {gone
+              ? 'Deleted board'
+              : counts && counts.total > 0
+                ? `${counts.done} of ${counts.total} done`
+                : counts
+                  ? 'No cards yet'
+                  : 'Nested board'}
           </div>
         )}
       </div>

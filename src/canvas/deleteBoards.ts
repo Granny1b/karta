@@ -1,12 +1,14 @@
 import type { BoardIndex, BoardNode, BoardSummary, Id } from '@/domain/board';
+import { subtreeTotals } from '@/board/boardSubtree';
 
 /**
  * What deleting a selection would take with it.
  *
  * A board link is a doorway, and until now deleting one left the room standing:
  * the board stayed in the sidebar looking like a delete that had failed. It
- * should go too — but a board can hold a great deal of work behind a tile the
- * size of a card, so a board with anything in it is worth asking about first.
+ * should go too, along with whatever is nested inside it — but a board can hold
+ * a great deal of work behind a tile the size of a card, so a board with
+ * anything in it is worth asking about first.
  *
  * Pure, so the question "is this destructive, and how much" is decided and
  * tested away from the dialog that asks it.
@@ -16,8 +18,9 @@ export interface DoomedBoard {
   readonly linkNodeId: Id;
   readonly boardId: Id;
   readonly title: string;
+  /** Cards on the board and on every board nested inside it. */
   readonly cards: number;
-  /** Child boards that would be orphaned — they are not deleted with it. */
+  /** Boards nested inside it, at every level. They are deleted with it. */
   readonly children: number;
   /** In the index and reachable, so it can actually be deleted. */
   readonly known: boolean;
@@ -60,12 +63,16 @@ export function planBoardDeletion(
     seen.add(node.targetBoardId);
 
     const summary = byId.get(node.targetBoardId);
+    // Everything under the tile, not just the board the tile names: deleting a
+    // board deletes what is nested inside it, so that is what has to be counted
+    // in the question asked first.
+    const totals = summary ? subtreeTotals(index, summary.id) : { boards: 0, cards: 0 };
     boards.push({
       linkNodeId: node.id,
       boardId: node.targetBoardId,
       title: summary?.title ?? node.cachedTitle,
-      cards: summary?.counts.cards ?? 0,
-      children: summary?.counts.children ?? 0,
+      cards: totals.cards,
+      children: totals.boards,
       known: summary !== undefined,
     });
   }
@@ -74,14 +81,4 @@ export function planBoardDeletion(
     boards,
     withContent: boards.filter((b) => b.known && (b.cards > 0 || b.children > 0)),
   };
-}
-
-/** What the confirmation says a board holds, in words. */
-export function describeContents(board: DoomedBoard): string {
-  const parts: string[] = [];
-  if (board.cards > 0) parts.push(`${board.cards} card${board.cards === 1 ? '' : 's'}`);
-  if (board.children > 0) {
-    parts.push(`${board.children} nested board${board.children === 1 ? '' : 's'}`);
-  }
-  return parts.length === 0 ? 'empty' : parts.join(' and ');
 }

@@ -4,6 +4,12 @@ import type { Filter } from '@/state/uiStore';
 export interface TreeNode {
   summary: BoardSummary;
   children: TreeNode[];
+  /**
+   * The board it was nested in is gone, so the tree shows it at the top rather
+   * than losing it. The panel says so on the row: a board that appears at the
+   * top level for no visible reason reads as the tree being broken.
+   */
+  detached: boolean;
 }
 
 /** Cards only — notes, images, groups and board links are canvas-only (spec 7.4). */
@@ -44,9 +50,18 @@ export function matchesFilter(card: CardNode, filter: Filter): boolean {
 }
 
 /**
- * The sidebar tree. Soft-deleted boards are left out, orphans (a parent that is
- * gone or deleted) surface at the root, and a cyclic `parentBoardId` chain
- * cannot hang the walk.
+ * The sidebar tree.
+ *
+ * Two rules, and one invariant that matters more than either: **every live
+ * board appears exactly once**. A board missing from this tree is a board with
+ * no way back to it.
+ *
+ * - Soft-deleted boards are left out. The document still exists — blob soft
+ *   delete is the 14-day undo behind it — so only `deletedAt` separates a board
+ *   that is gone from one that is not.
+ * - A board whose parent is gone, or whose parent chain runs in a circle, is
+ *   surfaced at the root and flagged `detached`, so the walk cannot hang and
+ *   nothing falls out of the tree on the way.
  */
 export function boardTree(index: BoardIndex | null): TreeNode[] {
   if (!index) return [];
@@ -55,6 +70,8 @@ export function boardTree(index: BoardIndex | null): TreeNode[] {
   const byId = new Map<Id, BoardSummary>(live.map((b) => [b.id, b]));
   const childrenOf = new Map<Id, BoardSummary[]>();
   const roots: BoardSummary[] = [];
+  /** Roots that were nested under something until that something went away. */
+  const orphans = new Set<Id>();
 
   for (const summary of live) {
     const parentId = summary.parentBoardId;
@@ -64,6 +81,7 @@ export function boardTree(index: BoardIndex | null): TreeNode[] {
       else childrenOf.set(parentId, [summary]);
     } else {
       roots.push(summary);
+      if (parentId !== null) orphans.add(summary.id);
     }
   }
 
@@ -71,14 +89,25 @@ export function boardTree(index: BoardIndex | null): TreeNode[] {
     a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
 
   const visited = new Set<Id>();
-  const build = (summary: BoardSummary): TreeNode => {
+  const build = (summary: BoardSummary, detached: boolean): TreeNode => {
     visited.add(summary.id);
     const children = (childrenOf.get(summary.id) ?? [])
       .filter((child) => !visited.has(child.id))
       .sort(byTitle)
-      .map(build);
-    return { summary, children };
+      .map((child) => build(child, false));
+    return { summary, children, detached };
   };
 
-  return roots.sort(byTitle).map(build);
+  const top = roots.sort(byTitle).map((summary) => build(summary, orphans.has(summary.id)));
+
+  // Whatever the walk could not reach from a root is in a cycle: A's parent is
+  // B and B's parent is A. Both used to vanish from the tree entirely. Lifting
+  // the first one seen makes the pair reachable again, and the second nests
+  // under it on the way down.
+  for (const summary of live.slice().sort(byTitle)) {
+    if (visited.has(summary.id)) continue;
+    top.push(build(summary, true));
+  }
+
+  return top.sort((a, b) => byTitle(a.summary, b.summary));
 }

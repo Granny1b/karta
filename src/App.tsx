@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Id } from '@/domain/board';
 import { api } from '@/lib/api';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
 import { readLocal, writeLocal } from '@/lib/storage';
-import { navigateToBoard, useRoute } from '@/routes';
+import { navigateHome, navigateToBoard, useRoute } from '@/routes';
+import { boardToOpenAfterDelete } from '@/board/boardSubtree';
 import { createStarterProject } from '@/board/template';
 import BoardShell from '@/board/BoardShell';
 import Button from '@/components/Button';
@@ -49,6 +50,8 @@ export default function App(): JSX.Element {
   const [attempt, setAttempt] = useState(0);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  /** The last board we turned away from, so the refusal is said once, not on every poll. */
+  const turnedAway = useRef<Id | null>(null);
   const live = useMemo(
     () => (index?.boards ?? []).filter((board) => board.deletedAt === null),
     [index],
@@ -118,6 +121,28 @@ export default function App(): JSX.Element {
     const store = useBoardStore.getState();
 
     if (boardId !== null) {
+      /*
+       * A deleted board is not openable — by a link in the address bar, by the
+       * back button, or by a tile that has not caught up. The API still serves
+       * it (restoring one would be impossible otherwise), so refusing is this
+       * side's job, and it has to happen here rather than in any one route in:
+       * the board opened the same way from every direction, looking alive.
+       *
+       * Only ever on a board the index *knows* is deleted. A board the index
+       * has not heard of yet is the ordinary state of one created a second ago.
+       */
+      const known = store.index?.boards.find((board) => board.id === boardId);
+      if (known && known.deletedAt !== null) {
+        const next = boardToOpenAfterDelete(store.index, boardId);
+        if (turnedAway.current !== boardId) {
+          turnedAway.current = boardId;
+          useUiStore.getState().toast(`“${known.title}” was deleted.`, 'warn');
+        }
+        if (next !== null && next !== boardId) navigateToBoard(next, { replace: true });
+        else navigateHome({ replace: true });
+        return;
+      }
+
       if (store.boardId !== boardId) {
         useUiStore.getState().openEditor(null);
         useUiStore.getState().loadViewForBoard(boardId);
