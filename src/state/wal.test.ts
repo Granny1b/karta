@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SCHEMA_VERSION, type BoardDoc } from '@/domain/board';
-import { makeBoard, makeCard, makeNote } from '@/state/factories';
+import { makeBoard, makeCard, makeEdge, makeNote } from '@/state/factories';
 import { clearWal, readWal, walHoldsUnsavedWork, writeWal, type WalEntry } from '@/state/wal';
 import { migrate } from '../../api/src/domain/migrate.js';
 import { parsePutBoardRequest } from '../../api/src/domain/validate.js';
@@ -171,6 +171,34 @@ describe('a write-ahead entry written by the deploy before this one', () => {
 
     const server: BoardDoc = { ...work, nodes: [work.nodes[0]] }; // the note never landed
     expect(walHoldsUnsavedWork(recovered, { doc: server, etag: '"v9"' })).toBe(true);
+  });
+
+  it('walks an older entry through the same migration the API runs', async () => {
+    // Schema 5 made `waypoints` a required field on every arrow. An entry from
+    // the build before it has arrows without one, and relabelling it "5"
+    // without migrating skipped the API's own 4 → 5 step: the arrows reached
+    // the canvas with no list to read, and every save of the recovered board
+    // was refused with `doc.edges[0].waypoints: must be an array`.
+    const withArrow: BoardDoc = {
+      ...work,
+      nodes: [makeCard({ id: 'A', title: 'A' }), makeCard({ id: 'B', title: 'B' })],
+      edges: [makeEdge({ id: 'E', source: 'A', target: 'B', routing: 'bezier' })],
+    };
+    const { waypoints: _dropped, ...v4Edge } = withArrow.edges[0]!;
+    disk.set(KEY, {
+      boardId: BOARD_ULID,
+      doc: { ...withArrow, schemaVersion: 4, edges: [v4Edge] },
+      savedAt: CLIENT_STAMP,
+      etag: '"v0"',
+    });
+
+    const recovered = await readWal(BOARD_ULID);
+    expect(recovered?.doc.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(recovered?.doc.edges[0]?.waypoints).toEqual([]);
+    // The API takes it, and the server's own copy of the same work is not
+    // mistaken for something unsaved.
+    expect(() => parsePutBoardRequest({ doc: recovered!.doc }, BOARD_ULID)).not.toThrow();
+    expect(walHoldsUnsavedWork(recovered!, { doc: withArrow, etag: '"v9"' })).toBe(false);
   });
 
   it('leaves an entry from a newer build alone rather than restoring it wrong', async () => {
