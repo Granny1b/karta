@@ -35,7 +35,16 @@ export interface DeletionPlan {
 const EMPTY: DeletionPlan = { boards: [], withContent: [] };
 
 /**
- * The boards behind the links in `nodeIds`.
+ * The boards behind the links in `nodeIds`, which sit on `hostBoardId`.
+ *
+ * Only a board's *doorway* takes the board with it: the tile on the board's own
+ * parent, with no other tile to the same board left beside it — "the only thing
+ * on the canvas standing for that board". Duplicate and paste copy a tile as it
+ * is, target and all, so a board can have several; deleting a copy used to
+ * delete the board behind all of them, and then sweep the original tile away
+ * too. Any other tile is a shortcut, and deleting it deletes the tile alone.
+ * Nor does a tile ever take the board it stands on, or one above it: a pasted
+ * link back up the tree would otherwise delete the floor under the user.
  *
  * A link whose board the index does not know about is reported with
  * `known: false` rather than dropped: the node still goes, and the caller can
@@ -45,13 +54,29 @@ export function planBoardDeletion(
   nodeIds: readonly Id[],
   nodes: readonly BoardNode[],
   index: BoardIndex | null,
+  hostBoardId: Id,
 ): DeletionPlan {
   if (nodeIds.length === 0) return EMPTY;
 
   const doomed = new Set(nodeIds);
-  const byId = new Map<Id, BoardSummary>(
-    (index?.boards ?? []).filter((b) => b.deletedAt === null).map((b) => [b.id, b]),
-  );
+  const all = index?.boards ?? [];
+  const byId = new Map<Id, BoardSummary>(all.filter((b) => b.deletedAt === null).map((b) => [b.id, b]));
+
+  // Boards still reached by a tile that is staying.
+  const kept = new Set<Id>();
+  for (const node of nodes) {
+    if (node.kind === 'boardLink' && !doomed.has(node.id)) kept.add(node.targetBoardId);
+  }
+
+  // The host and everything above it, deleted boards included: the walk is
+  // about where the user stands, not about what the tree still shows.
+  const underfoot = new Set<Id>([hostBoardId]);
+  const parentOf = new Map<Id, Id | null>(all.map((b) => [b.id, b.parentBoardId]));
+  let cursor = parentOf.get(hostBoardId) ?? null;
+  while (cursor !== null && !underfoot.has(cursor)) {
+    underfoot.add(cursor);
+    cursor = parentOf.get(cursor) ?? null;
+  }
 
   const boards: DoomedBoard[] = [];
   const seen = new Set<Id>();
@@ -62,7 +87,11 @@ export function planBoardDeletion(
     if (seen.has(node.targetBoardId)) continue;
     seen.add(node.targetBoardId);
 
+    if (kept.has(node.targetBoardId) || underfoot.has(node.targetBoardId)) continue;
     const summary = byId.get(node.targetBoardId);
+    // A board nested somewhere else has its doorway there; this is a shortcut.
+    if (summary !== undefined && summary.parentBoardId !== hostBoardId) continue;
+
     // Everything under the tile, not just the board the tile names: deleting a
     // board deletes what is nested inside it, so that is what has to be counted
     // in the question asked first.

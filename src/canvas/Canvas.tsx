@@ -960,7 +960,7 @@ function CanvasSurface(): JSX.Element | null {
     const edgeIds = selection.edgeIds();
     if (nodeIds.length === 0 && edgeIds.length === 0) return;
 
-    const plan = planBoardDeletion(nodeIds, current.nodes, store.index);
+    const plan = planBoardDeletion(nodeIds, current.nodes, store.index, current.id);
     if (plan.withContent.length > 0) {
       // Hold the whole gesture until the question is answered, so a cancel
       // leaves the canvas exactly as it was.
