@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { ApiError } from '@/lib/api';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError, api } from '@/lib/api';
 
 /**
  * `messageFrom` is not exported, so these drive it through the same paths the
@@ -55,5 +55,53 @@ describe('error messages', () => {
     const { messageForTest } = await import('@/lib/api');
     const wall = 'x'.repeat(5000);
     expect(messageForTest(500, wall, 'x')).not.toContain(wall);
+  });
+});
+
+describe('a lapsed sign-in', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /*
+   * Static Web Apps answers an expired session on /api with a redirect to the
+   * sign-in page. Followed, it crossed to the identity provider and failed
+   * CORS, which `fetch` reports exactly like a dropped connection — so the app
+   * said "Offline" for ever instead of asking anyone to sign in.
+   */
+  it('is told apart from a dropped connection', async () => {
+    const fetch = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        ({ type: 'opaqueredirect', status: 0, ok: false }) as unknown as Response,
+    );
+    vi.stubGlobal('fetch', fetch);
+
+    const err = await api.getIndex().catch((e: unknown) => e);
+
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({ redirect: 'manual' });
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).signedOut).toBe(true);
+    expect((err as ApiError).offline).toBe(false);
+    expect((err as ApiError).message).toMatch(/sign in/i);
+  });
+
+  it('reads a bare redirect the same way, where a runtime hands one back', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ type: 'basic', status: 302, ok: false }) as unknown as Response),
+    );
+    const err = await api.getIndex().catch((e: unknown) => e);
+    expect((err as ApiError).signedOut).toBe(true);
+  });
+
+  it('still reports a network failure as offline', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      }),
+    );
+    const err = await api.getIndex().catch((e: unknown) => e);
+    expect((err as ApiError).offline).toBe(true);
   });
 });

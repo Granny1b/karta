@@ -39,6 +39,7 @@ export default function BoardShell(): JSX.Element {
   const walRecovery = useBoardStore((s) => s.walRecovery);
 
   useShellShortcuts();
+  useFilterForThisBoard();
 
   const navigate = useCallback((boardId: Id) => navigateToBoard(boardId), []);
 
@@ -187,6 +188,27 @@ function useShellShortcuts(): void {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+}
+
+/**
+ * Label and status ids belong to one board, and the filter outlives the board
+ * it was set on. Carried to another board — or left behind by a label or status
+ * that was deleted — an id matches nothing: every column reads "Nothing
+ * matches", every card on the canvas is dimmed, and no option in the filter's
+ * lists can untick it, because it is not in them. So it goes as soon as the
+ * open board does not have it.
+ */
+function useFilterForThisBoard(): void {
+  const labels = useBoardStore((s) => s.doc?.labels);
+  const statuses = useBoardStore((s) => s.doc?.statuses);
+
+  useEffect(() => {
+    if (!labels || !statuses) return;
+    useUiStore.getState().retainFilterIds(
+      new Set(labels.map((label) => label.id)),
+      new Set(statuses.map((status) => status.id)),
+    );
+  }, [labels, statuses]);
 }
 
 /** Spec 6.4: the index says this board moved while local work is unsaved. */

@@ -198,12 +198,18 @@ export function mergeBoards(base: BoardDoc, local: BoardDoc, server: BoardDoc): 
   const doc: BoardDoc = {
     schemaVersion: local.schemaVersion,
     id: local.id,
-    parentBoardId: head.parentBoardId,
+    // Where the board sits, and whether it exists at all, are never edited on
+    // an open board — the server is the only side that moves either — so they
+    // are taken from it rather than from whichever side looks newer. The
+    // comparison behind `head` sets this browser's clock against the server's,
+    // and a clock running ahead used to write `deletedAt: null` over a delete
+    // made while the board had unsaved work, bringing the board back.
+    parentBoardId: server.parentBoardId,
     title: head.title,
     icon: head.icon,
     createdAt: base.createdAt || local.createdAt,
     updatedAt: isLater(server.updatedAt, local.updatedAt) ? server.updatedAt : local.updatedAt,
-    deletedAt: head.deletedAt,
+    deletedAt: server.deletedAt,
     acl: head.acl,
     viewport: local.viewport, // the camera is this client's business (spec 6.1)
     statuses,

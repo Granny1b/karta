@@ -40,6 +40,39 @@ interface DropTarget {
   index: number;
 }
 
+/**
+ * The rank for a card dropped at `index` of what a column is *showing* — the
+ * visible cards, less the one being dragged.
+ *
+ * The drop line sits between two visible cards, but the bounds come from the
+ * whole column. With a filter on, the cards it hides are still ranked, and a
+ * rank picked between two visible neighbours could be exactly a hidden card's:
+ * fractional keys are deterministic, so the same two bounds always give the
+ * same key. The two cards then tied, and the next drop between them landed
+ * somewhere else entirely.
+ */
+export function dropRank(
+  all: readonly CardNode[],
+  shown: readonly CardNode[],
+  cardId: Id,
+  index: number,
+): string {
+  const column = all.filter((card) => card.id !== cardId);
+  const visible = shown.filter((card) => card.id !== cardId);
+  const before = visible[index - 1] ?? null;
+  const after = visible[index] ?? null;
+
+  if (before !== null) {
+    const at = column.findIndex((card) => card.id === before.id);
+    return rankBetween(before.rank, column[at + 1]?.rank ?? null);
+  }
+  if (after !== null) {
+    const at = column.findIndex((card) => card.id === after.id);
+    return rankBetween(at > 0 ? (column[at - 1]?.rank ?? null) : null, after.rank);
+  }
+  return rankBetween(column[column.length - 1]?.rank ?? null, null);
+}
+
 export default function KanbanView(): JSX.Element {
   const doc = useBoardStore((s) => s.doc);
   const boardId = useBoardStore((s) => s.boardId);
@@ -140,15 +173,12 @@ export default function KanbanView(): JSX.Element {
     if (!source || source.kind !== 'card') return;
 
     const shown = visibleByColumn.get(column.key) ?? [];
-    const rest = shown.filter((card) => card.id !== cardId);
     const from = shown.findIndex((card) => card.id === cardId);
     const index = from >= 0 && from < target.index ? target.index - 1 : target.index;
     const sameColumn = columnKeyOf(source.statusId) === column.key;
     if (sameColumn && index === from) return; // dropped back where it started
 
-    const before = rest[index - 1] ?? null;
-    const after = rest[index] ?? null;
-    const rank = rankBetween(before?.rank ?? null, after?.rank ?? null);
+    const rank = dropRank(allByColumn.get(column.key) ?? [], shown, cardId, index);
 
     if (sameColumn) updateNode(cardId, { rank }, 'Reorder card');
     else updateNode(cardId, { statusId: column.statusId, rank }, 'Move card');

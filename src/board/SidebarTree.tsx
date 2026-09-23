@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, FolderPlus, Plus, Sparkles, Trash2, Unlink, X } from 'lucide-react';
 import { cx } from '@/canvas/cx';
-import { DEFAULT_NODE_SIZE, type BoardNode, type BoardSummary, type Id } from '@/domain/board';
+import { DEFAULT_NODE_SIZE, MAX_TITLE, type BoardNode, type BoardSummary, type Id } from '@/domain/board';
 import { ApiError, api } from '@/lib/api';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
@@ -235,34 +235,23 @@ export default function SidebarTree(): JSX.Element | null {
     [busy, linkChildOnParent, loadIndex, report, summaries, toast],
   );
 
-  const rename = useCallback(
-    async (id: Id, title: string) => {
-      setRenamingId(null);
-      const trimmed = title.trim();
-      const summary = summaries.find((b) => b.id === id);
-      if (trimmed.length === 0 || !summary || trimmed === summary.title) return;
-
-      // The open board renames through the store, so it undoes like any edit.
-      if (id === boardId) {
-        mutate('Rename board', (d) => {
-          d.title = trimmed;
-        });
-        await save();
-        await loadIndex();
-        return;
-      }
-
-      // Any other board is the guarded round trip in `renameBoard`, shared with
-      // the board tile on the canvas so the compare-and-swap exists once.
-      setBusy(true);
-      try {
-        await renameBoard(id, trimmed);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [boardId, loadIndex, mutate, save, summaries],
-  );
+  /**
+   * Every rename goes through `renameBoard`, shared with the board tile and the
+   * breadcrumb: the open board renames through the store so it undoes like any
+   * edit, any other board takes the guarded round trip — and either way the
+   * title is capped at what the API accepts. A copy of that here wrote the open
+   * board's title uncapped, and one character over the limit was a document
+   * every autosave after it was refused for.
+   */
+  const rename = useCallback(async (id: Id, title: string) => {
+    setRenamingId(null);
+    setBusy(true);
+    try {
+      await renameBoard(id, title);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
   /**
    * Delete a board and everything nested inside it (`deleteBoardsAndDescendants`
@@ -556,6 +545,7 @@ function RenameField({
     <input
       ref={ref}
       value={value}
+      maxLength={MAX_TITLE}
       aria-label="Board name"
       onChange={(e) => setValue(e.target.value)}
       onBlur={() => onCommit(value)}

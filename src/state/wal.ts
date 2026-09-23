@@ -1,6 +1,9 @@
 import { del, get, set } from 'idb-keyval';
 import { SCHEMA_VERSION, type BoardDoc, type Id, type Iso } from '@/domain/board';
 import { nowIso } from '@/lib/format';
+// The API's own migration steps: one walk forward, run on the server's reads
+// and writes and here, so a recovered entry can never be a version behind.
+import { upgradeToCurrent } from '../../api/src/domain/migrate.js';
 
 /**
  * Write-ahead log (spec 7.5). Every mutation lands here before the network is
@@ -24,15 +27,13 @@ export interface WalEntry {
 const key = (boardId: Id): string => `wal:${boardId}`;
 
 /**
- * The oldest document version this build can adopt from the log as it stands.
+ * The oldest document version this build can adopt from the log.
  *
  * The log outlives a release: the entry on disk was stamped by whichever build
- * wrote it, and the one reading it may be a deploy later. Every schema step so
- * far has been additive — a version 1 document already *is* a well-formed
- * version 2 one, which is why `api/src/domain/migrate.ts` walks 1 → 2 with the
- * identity — so an entry from the previous deploy is restamped and restored.
- * When a step stops being additive this number moves up with it, and entries
- * older than it are left alone rather than restored wrong.
+ * wrote it, and the one reading it may be a deploy later. Such an entry is
+ * walked forward through `upgradeToCurrent` — the very steps the API runs on
+ * every read and every write — so it comes back in the shape this build draws
+ * and the API accepts.
  */
 const OLDEST_READABLE_VERSION = 1;
 
@@ -42,14 +43,23 @@ const OLDEST_READABLE_VERSION = 1;
  * The version is part of what is recovered, not a detail carried along with
  * it: the API accepts what it can migrate, so an entry restored at its old
  * version — or at one from a build newer than this bundle — is work that can
- * never be saved. Refusing leaves the entry on disk untouched for the build
- * that does understand it.
+ * never be saved. And the migration has to actually run: restamping without it
+ * was only sound while every step was additive, and schema 5 made `waypoints`
+ * required on every arrow — an older entry restamped as 5 skipped that step,
+ * reached the canvas with arrows that had no list to read, and was refused by
+ * every save after it. Refusing leaves the entry on disk untouched for the
+ * build that does understand it.
  */
 function readableDoc(doc: BoardDoc): BoardDoc | null {
   const version: unknown = doc.schemaVersion;
   if (typeof version !== 'number' || !Number.isInteger(version)) return null;
   if (version < OLDEST_READABLE_VERSION || version > SCHEMA_VERSION) return null;
-  return version === SCHEMA_VERSION ? doc : { ...doc, schemaVersion: SCHEMA_VERSION };
+  if (version === SCHEMA_VERSION) return doc;
+  try {
+    return upgradeToCurrent(doc as unknown as Record<string, unknown>) as unknown as BoardDoc;
+  } catch {
+    return null;
+  }
 }
 
 let warned = false;

@@ -248,10 +248,16 @@ export type BoardDocValidation =
 /*
  * Every field length this file judges comes from `src/domain/board.ts`, the
  * one contract both halves compile against — see the note above the limits
- * there. `MAX_RANK` stays local because nothing on the client writes a rank:
- * they come out of `fractional-indexing`, which cannot produce a long one.
+ * there. `MAX_RANK` stays local because nothing on the client writes a rank by
+ * hand: they come out of `fractional-indexing`. Its keys do lengthen, though,
+ * each time one gap is split again — always dropping a card just below the top
+ * one adds a character every six drops or so. The cap used to be 64, which a
+ * busy column reached after 373 such drops; after that every save of the board
+ * was refused and nothing on screen could shorten the rank again. This is a
+ * sanity bound, not a budget: a thousand characters is thousands of drops
+ * into one gap.
  */
-const MAX_RANK = 64;
+const MAX_RANK = 1_024;
 
 /**
  * Check a document a client posted, and hand back the version this build

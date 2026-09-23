@@ -111,18 +111,33 @@ export function useNestedCards(enabled: boolean, boardId: Id | null): NestedCard
     setLoading(true);
     setError(null);
 
-    void Promise.all(children.map((child) => loadChild(child.id, child.updatedAt)))
-      .then((docs) => {
+    // Settled one by one: a single child that fails to load used to hide the
+    // cards of every child that did. And a board deleted in another tab is
+    // left out before the index has caught up with it — the API still serves
+    // a soft-deleted board, so only the document can say.
+    void Promise.allSettled(children.map((child) => loadChild(child.id, child.updatedAt))).then(
+      (results) => {
         if (cancelled) return;
+        const docs: BoardDoc[] = [];
+        let failure: unknown = null;
+        for (const result of results) {
+          if (result.status === 'fulfilled') {
+            if (result.value.deletedAt === null) docs.push(result.value);
+          } else {
+            failure ??= result.reason;
+          }
+        }
         setCards(docs.flatMap(toNestedCards));
         setLoading(false);
-      })
-      .catch((cause: unknown) => {
-        if (cancelled) return;
-        setCards([]);
-        setLoading(false);
-        setError(cause instanceof ApiError ? cause.message : 'The nested boards could not be loaded.');
-      });
+        if (failure !== null) {
+          setError(
+            failure instanceof ApiError
+              ? failure.message
+              : 'Some of the nested boards could not be loaded.',
+          );
+        }
+      },
+    );
 
     return () => {
       cancelled = true;

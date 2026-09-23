@@ -67,6 +67,7 @@ export default function ImportDialog(): JSX.Element {
   const boardId = useBoardStore((s) => s.boardId);
   const userId = useBoardStore((s) => s.me?.userId ?? '');
   const mutate = useBoardStore((s) => s.mutate);
+  const save = useBoardStore((s) => s.save);
   const setDialog = useUiStore((s) => s.setDialog);
   const toast = useUiStore((s) => s.toast);
 
@@ -105,12 +106,16 @@ export default function ImportDialog(): JSX.Element {
   };
 
   const run = async (): Promise<void> => {
-    const current: BoardDoc | null = useBoardStore.getState().doc;
-    if (!current || !boardId || parsed.state !== 'valid' || busy) return;
+    if (!useBoardStore.getState().doc || !boardId || parsed.state !== 'valid' || busy) return;
 
     setBusy(true);
     try {
       if (mode === 'replace') {
+        // The restore point has to hold what is on screen, so pending work is
+        // written first — as the restore-points dialog and Extract already do.
+        // Without it, the edits of the last second or two were in no snapshot,
+        // only in an undo stack that lives as long as the tab.
+        if (useBoardStore.getState().dirty) await save();
         try {
           await api.snapshot(boardId);
         } catch {
@@ -118,6 +123,11 @@ export default function ImportDialog(): JSX.Element {
         }
       }
 
+      // Read after the awaits: the board may have moved on while they ran,
+      // and an import meant for one board must not land on the next.
+      const live = useBoardStore.getState();
+      const current: BoardDoc | null = live.boardId === boardId ? live.doc : null;
+      if (!current) return;
       const outcome = applyImport(current, parsed.value, userId, mode);
       mutate('Import JSON', (d) => {
         d.title = outcome.doc.title;

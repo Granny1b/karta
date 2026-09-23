@@ -92,6 +92,8 @@ export interface UiState {
   setFilter(patch: Partial<Filter>): void;
   clearFilter(): void;
   filterActive(): boolean;
+  /** Drop label and status ids the open board does not have. */
+  retainFilterIds(labelIds: ReadonlySet<Id>, statusIds: ReadonlySet<Id>): void;
 
   toasts: Toast[];
   toast(message: string, kind?: ToastKind): void;
@@ -158,6 +160,13 @@ export const useUiStore = create<UiState>()((set, get) => ({
   },
   clearFilter() {
     set({ filter: EMPTY_FILTER });
+  },
+  retainFilterIds(labelIds, statusIds) {
+    const f = get().filter;
+    const labels = f.labelIds.filter((id) => labelIds.has(id));
+    const statuses = f.statusIds.filter((id) => statusIds.has(id));
+    if (labels.length === f.labelIds.length && statuses.length === f.statusIds.length) return;
+    set({ filter: { ...f, labelIds: labels, statusIds: statuses } });
   },
   filterActive() {
     const f = get().filter;

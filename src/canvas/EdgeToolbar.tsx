@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CornerDownRight, Minus, Slash, Spline, Trash2 } from 'lucide-react';
 import { clearWaypoints } from '@/canvas/edges/WaypointHandles';
-import type { ColorToken, Edge, EdgeRouting, EdgeSemantic } from '@/domain/board';
+import { MAX_EDGE_LABEL, capText, type ColorToken, type Edge, type EdgeRouting, type EdgeSemantic } from '@/domain/board';
 import { TEMPER_TOKENS, colorValue, edgeColor } from '@/lib/colors';
 import { useBoardStore } from '@/state/boardStore';
 import { cx } from '@/canvas/cx';
@@ -32,13 +32,26 @@ export default function EdgeToolbar({ edge }: { edge: Edge }): JSX.Element {
   const updateEdge = useBoardStore((s) => s.updateEdge);
   const removeEdges = useBoardStore((s) => s.removeEdges);
   const [label, setLabel] = useState(edge.label ?? '');
+  /**
+   * Escape blurs the field to cancel, and the blur commits. The blur runs
+   * synchronously inside the keydown, before the reset to the stored label has
+   * rendered, so without this it committed exactly what Escape was cancelling.
+   */
+  const cancelling = useRef(false);
 
   useEffect(() => {
     setLabel(edge.label ?? '');
   }, [edge.id, edge.label]);
 
   const commitLabel = (): void => {
-    const next = label.trim();
+    if (cancelling.current) {
+      cancelling.current = false;
+      return;
+    }
+    // Capped as well as limited on the field: a paste can get past `maxLength`,
+    // and one character over the API's limit is a board every autosave after it
+    // is refused for.
+    const next = capText(label.trim(), MAX_EDGE_LABEL);
     const value = next.length > 0 ? next : null;
     if (value !== edge.label) updateEdge(edge.id, { label: value });
   };
@@ -125,6 +138,7 @@ export default function EdgeToolbar({ edge }: { edge: Edge }): JSX.Element {
         <input
           className="karta-input"
           value={label}
+          maxLength={MAX_EDGE_LABEL}
           placeholder="Label"
           aria-label="Arrow label"
           onChange={(event) => setLabel(event.target.value)}
@@ -136,6 +150,7 @@ export default function EdgeToolbar({ edge }: { edge: Edge }): JSX.Element {
               event.currentTarget.blur();
             }
             if (event.key === 'Escape') {
+              cancelling.current = true;
               setLabel(edge.label ?? '');
               event.currentTarget.blur();
             }

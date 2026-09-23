@@ -1,4 +1,4 @@
-import type { Id } from '@/domain/board';
+import type { BoardLinkNode, Id } from '@/domain/board';
 import { api } from '@/lib/api';
 import { makeBoardLink } from '@/state/factories';
 import { useBoardStore } from '@/state/boardStore';
@@ -61,21 +61,31 @@ export async function createSubBoardAt(
       position: { x: Math.round(position.x), y: Math.round(position.y) },
     });
 
-    store.addNode(link);
+    // The store's own methods act on whichever board is open *now*, and the
+    // user may have moved on while the board was being created — the tile
+    // used to land on that board instead, far from the child it opens.
+    const live = useBoardStore.getState();
+    if (live.boardId !== parentBoardId || live.doc === null) {
+      await placeOnClosedBoard(parentBoardId, link);
+      await live.loadIndex();
+      return created.doc.id;
+    }
+
+    live.addNode(link);
 
     // Two things have to be true before the user can walk into this board.
     //
     // The link must be on the server, because opening the child replaces the
     // parent document in memory and an unsaved link would go with it — the same
     // reason the sidebar saves before it navigates.
-    await store.save();
+    await live.save();
 
     // And the index must know the board exists. The breadcrumb is built by
     // walking parentBoardId through the index (`Breadcrumb.chainFor`), and a
     // board it cannot find breaks the walk on its first step — leaving no
     // breadcrumb at all, not merely a shorter one. `api.createBoard` updates
     // the index on the server; this is what makes the client's copy agree.
-    await store.loadIndex();
+    await live.loadIndex();
 
     // A board arrives called "New board", so the one thing the user certainly
     // wants next is to name it. The tile picks this up as it mounts and opens
@@ -90,5 +100,22 @@ export async function createSubBoardAt(
     // worth saying here is which action failed, not how.
     ui.toast('Could not create the nested board', 'error');
     return null;
+  }
+}
+
+/**
+ * The tile, on a board that is no longer the open one: the guarded round trip
+ * every closed-board edit takes, so a board changed elsewhere in the meantime
+ * refuses rather than being overwritten. The child exists either way and is in
+ * the sidebar; only its tile can be missing, and the toast says which.
+ */
+async function placeOnClosedBoard(boardId: Id, link: BoardLinkNode): Promise<void> {
+  const ui = useUiStore.getState();
+  try {
+    const { doc, etag } = await api.getBoard(boardId);
+    await api.putBoard(boardId, { ...doc, nodes: [...doc.nodes, link] }, etag, []);
+    ui.toast('Nested board added, on the board it was made from');
+  } catch {
+    ui.toast('The nested board was created, but its tile could not be added to the board it was made from.', 'warn');
   }
 }

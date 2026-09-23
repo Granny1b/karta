@@ -80,6 +80,33 @@ describe('mergeBoards', () => {
     expect(notes.some((n) => n.includes('was edited elsewhere'))).toBe(true);
   });
 
+  it('never brings back a board the server has deleted, whatever the clocks say', () => {
+    // The board was open with unsaved work when it was deleted — from the
+    // sidebar, or another tab. The save that follows 412s and merges. This
+    // browser's clock runs ahead of the server's, so the local document looks
+    // "newer" — and taking the board's fields from the newer side used to write
+    // `deletedAt: null` back over the delete. The owner passes the PUT's gate,
+    // so the board came back to life, emptied of the boards nested inside it.
+    const local: BoardDoc = {
+      ...base,
+      nodes: [{ ...cardA, title: 'A edited', updatedAt: T3 }, cardB],
+      updatedAt: T3, // browser clock, ahead
+    };
+    const server: BoardDoc = { ...base, deletedAt: T2, updatedAt: T2 }; // server clock
+
+    const { doc } = mergeBoards(base, local, server);
+
+    expect(doc.deletedAt).toBe(T2);
+    expect(titleOf(doc, 'A')).toBe('A edited'); // the edit itself is still kept
+  });
+
+  it('takes where the board sits from the server, which is the only side that moves it', () => {
+    const local: BoardDoc = { ...base, updatedAt: T3 };
+    const server: BoardDoc = { ...base, parentBoardId: '01NEWPARENT', updatedAt: T2 };
+
+    expect(mergeBoards(base, local, server).doc.parentBoardId).toBe('01NEWPARENT');
+  });
+
   it('accepts a remote delete of a node nobody touched', () => {
     const local: BoardDoc = { ...base, updatedAt: T2 };
     const server: BoardDoc = { ...base, nodes: [cardA], edges: [], updatedAt: T3 };

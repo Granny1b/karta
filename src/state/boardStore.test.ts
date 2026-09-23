@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SCHEMA_VERSION, type BoardDoc, type BoardIndex, type Id, type Me } from '@/domain/board';
-import { makeBoard, makeCard } from '@/state/factories';
+import { makeBoard, makeCard, makeImageNode } from '@/state/factories';
 import type { WalEntry } from '@/state/wal';
 
 /* ------------------------------------------------------------------ *
@@ -15,7 +15,7 @@ interface Fake {
   etag: string;
   version: number;
   clockMs: number;
-  puts: { doc: BoardDoc; ifMatch: string | null }[];
+  puts: { doc: BoardDoc; ifMatch: string | null; orphans: string[] }[];
   boardGets: number;
   hold: boolean;
   waiting: (() => void)[];
@@ -24,6 +24,8 @@ interface Fake {
   walClears: number;
   /** When set, every PUT comes back as a 400 carrying these field errors. */
   reject: string[] | null;
+  /** When set, nothing reaches the server. */
+  offline: boolean;
 }
 
 function seedDoc(): BoardDoc {
@@ -48,6 +50,7 @@ const fake: Fake = {
   walWrites: [],
   walClears: 0,
   reject: null,
+  offline: false,
 };
 
 function resetFake(): void {
@@ -63,6 +66,7 @@ function resetFake(): void {
   fake.walWrites = [];
   fake.walClears = 0;
   fake.reject = null;
+  fake.offline = false;
 }
 
 function releasePuts(): void {
@@ -86,6 +90,7 @@ const fakeApi = {
     return { userId: 'u1', userDetails: 'u1', identityProvider: 'aad', userRoles: ['authenticated'] };
   },
   async getIndex(): Promise<BoardIndex> {
+    if (fake.offline) throw apiError(0, 'No connection to the server');
     return {
       schemaVersion: SCHEMA_VERSION,
       updatedAt: fake.doc.updatedAt,
@@ -107,8 +112,14 @@ const fakeApi = {
     fake.boardGets += 1;
     return { doc: fake.doc, etag: fake.etag };
   },
-  async putBoard(_id: Id, doc: BoardDoc, ifMatch: string | null): Promise<{ doc: BoardDoc; etag: string }> {
-    fake.puts.push({ doc, ifMatch });
+  async putBoard(
+    _id: Id,
+    doc: BoardDoc,
+    ifMatch: string | null,
+    orphans: string[] = [],
+  ): Promise<{ doc: BoardDoc; etag: string }> {
+    if (fake.offline) throw apiError(0, 'No connection to the server');
+    fake.puts.push({ doc, ifMatch, orphans });
     if (fake.hold) await new Promise<void>((resume) => fake.waiting.push(resume));
     if (fake.reject) {
       // The shape `api/src/functions/_shared/respond.ts` puts on the wire.
@@ -289,6 +300,136 @@ describe('the save pipeline', () => {
     expect(fake.puts.map((p) => p.ifMatch)).toEqual(['"v1"', '"v2"', '"v3"']);
     expect(store.getState().saveState).toBe('saved');
     expect(titleOf(fake.doc, 'A')).toBe('Two');
+  });
+});
+
+describe('switching boards', () => {
+  it('writes the board being left before opening the next one', async () => {
+    const store = await openBoard();
+
+    // Well inside the 1.5 s autosave debounce — a tile double-clicked, a row in
+    // the sidebar, the back button. Opening the next board used to disarm the
+    // autosave, so this edit never reached the server: it waited in the
+    // write-ahead log and came back as a "restore unsaved changes?" prompt.
+    store.getState().updateNode('A', { title: 'Edited just before leaving' });
+    await store.getState().loadBoard('01OTHER');
+
+    expect(fake.puts).toHaveLength(1);
+    expect(fake.puts[0]?.doc.id).toBe(BOARD_ID);
+    expect(titleOf(fake.puts[0]!.doc, 'A')).toBe('Edited just before leaving');
+    expect(fake.wal).toBeNull(); // on the server, so there is nothing to offer back
+    expect(store.getState().boardId).toBe('01OTHER');
+  });
+
+  it('does not save over a reload of the same board', async () => {
+    // The conflict dialog's Reload means "throw mine away"; flushing first
+    // would write exactly the work the user just chose to discard.
+    const store = await openBoard();
+    store.getState().updateNode('A', { title: 'Discard me' });
+
+    await store.getState().loadBoard(BOARD_ID);
+
+    expect(fake.puts).toHaveLength(0);
+  });
+
+  it('still opens the next board when the save never answers', async () => {
+    const store = await openBoard();
+    fake.hold = true;
+    store.getState().updateNode('A', { title: 'Stuck on the wire' });
+
+    const leaving = store.getState().loadBoard('01OTHER');
+    await vi.advanceTimersByTimeAsync(10_000);
+    await leaving;
+
+    // The write-ahead log still holds the edit, so nothing is lost by moving on.
+    expect(store.getState().boardId).toBe('01OTHER');
+    expect(fake.wal?.doc.id).toBe(BOARD_ID);
+  });
+
+  it('opens only the last board asked for when navigations overlap', async () => {
+    const store = await openBoard();
+    store.getState().updateNode('A', { title: 'Edited' });
+
+    const first = store.getState().loadBoard('01FIRST');
+    const second = store.getState().loadBoard('01SECOND');
+    await Promise.all([first, second]);
+
+    expect(store.getState().boardId).toBe('01SECOND');
+    expect(fake.puts).toHaveLength(1);
+  });
+});
+
+describe('a save made offline', () => {
+  it('is retried once the connection is back, not only on the next edit', async () => {
+    // The status line promises the work is "saved when the connection is
+    // back". Nothing retried it: an edit made offline stayed unsaved until the
+    // next edit, however long the connection had been back.
+    const store = await openBoard();
+    fake.offline = true;
+    store.getState().updateNode('A', { title: 'Written on the train' });
+    await vi.advanceTimersByTimeAsync(1_600);
+    expect(store.getState().saveState).toBe('offline');
+
+    fake.offline = false;
+    await vi.advanceTimersByTimeAsync(21_000); // the next index poll
+
+    expect(store.getState().dirty).toBe(false);
+    expect(titleOf(fake.doc, 'A')).toBe('Written on the train');
+  });
+});
+
+describe("an image's files", () => {
+  const MEDIA = {
+    id: 'M1',
+    blobPath: 'media/01BOARD/M1.webp',
+    thumbPath: 'media/01BOARD/M1.thumb.webp',
+    contentType: 'image/webp' as const,
+    bytes: 1,
+    width: 10,
+    height: 10,
+    uploadedAt: '2026-01-01T00:00:00.000Z',
+    uploadedBy: 'u1',
+  };
+
+  function withImage(): void {
+    fake.doc = {
+      ...fake.doc,
+      nodes: [...fake.doc.nodes, makeImageNode({ id: 'IMG', mediaId: 'M1', naturalSize: { w: 10, h: 10 } })],
+      media: [MEDIA],
+    };
+  }
+
+  const sent = (): string[] => fake.puts.flatMap((put) => put.orphans);
+
+  it('are kept while an undo can still bring the image back', async () => {
+    // Delete, let the autosave run, undo: the node and its reference came back
+    // after the save had already deleted the files — an image broken for good.
+    withImage();
+    const store = await openBoard();
+
+    store.getState().removeNodes(['IMG']);
+    await vi.advanceTimersByTimeAsync(1_600);
+    expect(fake.puts).toHaveLength(1);
+    expect(sent()).toEqual([]);
+
+    store.getState().undo();
+    await vi.advanceTimersByTimeAsync(1_600);
+
+    expect(store.getState().doc?.media.map((m) => m.id)).toEqual(['M1']);
+    expect(sent()).toEqual([]);
+  });
+
+  it('go once the board is left, which is when the undo history goes', async () => {
+    withImage();
+    const store = await openBoard();
+
+    store.getState().removeNodes(['IMG']);
+    await vi.advanceTimersByTimeAsync(1_600);
+    expect(sent()).toEqual([]);
+
+    await store.getState().loadBoard('01OTHER');
+
+    expect(sent().sort()).toEqual([MEDIA.blobPath, MEDIA.thumbPath].sort());
   });
 });
 

@@ -900,6 +900,13 @@ function CanvasSurface(): JSX.Element | null {
   const onPaste = useCallback(
     (event: ReactClipboardEvent<HTMLDivElement>): void => {
       if (pasteNodesFromClipboard(event)) return;
+      // A field on the canvas — a text node, a shape's label, a tile's name, an
+      // arrow's label — keeps a paste that carries words. Cells copied from a
+      // spreadsheet carry a picture of themselves too, and the image handler
+      // used to take that instead: the words never arrived, and a screenshot
+      // of a table landed on the board. A paste that is only an image still
+      // goes to the board, since a field has nothing to do with one.
+      if (isEditableTarget(event.target) && event.clipboardData.getData('text/plain').length > 0) return;
       imageDrop.onPaste(event);
     },
     [imageDrop, pasteNodesFromClipboard],
@@ -960,7 +967,7 @@ function CanvasSurface(): JSX.Element | null {
     const edgeIds = selection.edgeIds();
     if (nodeIds.length === 0 && edgeIds.length === 0) return;
 
-    const plan = planBoardDeletion(nodeIds, current.nodes, store.index);
+    const plan = planBoardDeletion(nodeIds, current.nodes, store.index, current.id);
     if (plan.withContent.length > 0) {
       // Hold the whole gesture until the question is answered, so a cancel
       // leaves the canvas exactly as it was.

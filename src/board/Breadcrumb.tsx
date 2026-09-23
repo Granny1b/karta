@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
-import type { BoardSummary, Id } from '@/domain/board';
+import { MAX_TITLE, type BoardSummary, type Id } from '@/domain/board';
+import { renameBoard } from '@/board/renameBoard';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
 import { navigateToBoard } from '@/routes';
@@ -62,7 +63,6 @@ export default function Breadcrumb(): JSX.Element {
   const boardId = useBoardStore((s) => s.boardId);
   const index = useBoardStore((s) => s.index);
   const title = useBoardStore((s) => s.doc?.title ?? '');
-  const mutate = useBoardStore((s) => s.mutate);
   const setSidebarOpen = useUiStore((s) => s.setSidebarOpen);
 
   const chain = useMemo(() => chainFor(boardId, index?.boards, title), [boardId, index, title]);
@@ -79,10 +79,11 @@ export default function Breadcrumb(): JSX.Element {
   const commit = (): void => {
     const next = draft.trim();
     setRenaming(false);
-    if (next.length === 0 || next === title) return;
-    mutate('Rename board', (d) => {
-      d.title = next;
-    });
+    if (!boardId || next.length === 0 || next === title) return;
+    // The shared rename caps the title at what the API accepts — written raw,
+    // one character over was a document every autosave was refused for — and
+    // refreshes the index, so the sidebar agrees at once rather than a poll later.
+    void renameBoard(boardId, next);
   };
 
   // Deep trees collapse in the middle; the sidebar is the place to see them all.
@@ -122,6 +123,7 @@ export default function Breadcrumb(): JSX.Element {
         <input
           ref={input}
           value={draft}
+          maxLength={MAX_TITLE}
           aria-label="Board title"
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
