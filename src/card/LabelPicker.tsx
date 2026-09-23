@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Check, Plus, X } from 'lucide-react';
-import { MAX_NAME, type ColorToken, type Id, type LabelDef } from '@/domain/board';
+import { MAX_NAME, capText, type ColorToken, type Id, type LabelDef } from '@/domain/board';
 import { colorValue, isColorToken } from '@/lib/colors';
 import Button from '@/components/Button';
 import ColorSwatches from '@/card/ColorSwatches';
@@ -26,7 +26,9 @@ export default function LabelPicker({
   const [color, setColor] = useState<ColorToken>('slate');
 
   const submit = (): void => {
-    const trimmed = name.trim();
+    // Capped on commit as well as on the field: `maxLength` stops typing, not
+    // every paste, and a name over the API's limit wedges every save after it.
+    const trimmed = capText(name.trim(), MAX_NAME);
     if (trimmed.length === 0) return;
     onCreate(trimmed, color);
     setName('');

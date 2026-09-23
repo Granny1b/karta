@@ -83,6 +83,17 @@ describe('renameBoard', () => {
     expect(putBoard).not.toHaveBeenCalled();
   });
 
+  it('caps the open board’s name too, which the sidebar and breadcrumb rename through', async () => {
+    // Both used to write the title raw; one character over the API's cap was a
+    // document every autosave after it was refused for.
+    await renameBoard('open', 'y'.repeat(MAX_TITLE + 50));
+
+    const recipe = mutate.mock.calls[0]?.[1] as (d: { title: string }) => void;
+    const draft = { title: 'Open' };
+    recipe(draft);
+    expect(draft.title).toHaveLength(MAX_TITLE);
+  });
+
   it('caps a name the API would refuse', async () => {
     await renameBoard('other', 'x'.repeat(MAX_TITLE + 50));
     const title = (putBoard.mock.calls[0]?.[1] as { title: string }).title;

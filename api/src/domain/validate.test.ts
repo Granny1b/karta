@@ -4,6 +4,7 @@ import { MAX_SHAPE_LABEL, SCHEMA_VERSION } from '../../../src/domain/board.js';
 import { newBoardDoc } from './defaults.js';
 import { BadRequestError } from './errors.js';
 import { isSafeMediaPath, parsePutBoardRequest, validateBoardDoc } from './validate.js';
+import { rankBetween } from '../../../src/lib/ranks.js';
 
 const BOARD_ID = '01HZZZZZZZZZZZZZZZZZZZZZZZ';
 const OTHER_BOARD_ID = '01HYYYYYYYYYYYYYYYYYYYYYYY';
@@ -212,5 +213,31 @@ describe('validateBoardDoc caps', () => {
     expect(nodeErrors({ ...SHAPE_NODE, label: 'x'.repeat(MAX_SHAPE_LABEL + 1) })).toContain(
       `doc.nodes[0].label: longer than ${MAX_SHAPE_LABEL} characters`,
     );
+  });
+
+  it('accepts the rank a column reaches after a thousand drops into one gap', () => {
+    // Fractional keys lengthen as one gap is split again and again — always
+    // dropping just below the top card, say. The old 64-character cap was hit
+    // after 373 such drops, and from then on every save of the board was
+    // refused, with nothing on screen able to shorten the rank again.
+    const top = rankBetween(null, null);
+    let rank = rankBetween(top, null);
+    for (let drop = 0; drop < 1_000; drop += 1) rank = rankBetween(top, rank);
+    expect(rank.length).toBeGreaterThan(64);
+
+    const card = {
+      ...NODE_BASE,
+      kind: 'card',
+      title: 'Dragged a lot',
+      body: '',
+      checklist: [{ id: 'c1', text: 'Item', done: false, rank }],
+      statusId: null,
+      rank,
+      labelIds: [],
+      coverMediaId: null,
+      dueDate: null,
+      collapsed: false,
+    };
+    expect(nodeErrors(card)).toEqual([]);
   });
 });

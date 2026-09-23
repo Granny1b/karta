@@ -227,14 +227,23 @@ export default function StatusEditor(): JSX.Element {
 }
 
 function StatusName({ status, onRename }: { status: StatusDef; onRename(value: string): void }): JSX.Element {
-  const draft = useDraft(status.name, (value) => onRename(capText(value, MAX_NAME)));
+  // A blank name is never committed: it cannot be told apart in a list or a
+  // filter, and an exported board holding one is refused when imported back.
+  const draft = useDraft(status.name, (value) => {
+    const next = capText(value.trim(), MAX_NAME);
+    if (next.length > 0) onRename(next);
+  });
   return (
     <input
       value={draft.value}
       maxLength={MAX_NAME}
       aria-label="Status name"
       onChange={(e) => draft.setValue(e.target.value)}
-      onBlur={draft.flush}
+      onBlur={() => {
+        draft.flush();
+        // A field left empty goes back to the name the status still has.
+        if (draft.value.trim().length === 0) draft.setValue(status.name);
+      }}
       className="karta-field karta-field--sm karta-field--quiet min-w-0 flex-1"
     />
   );

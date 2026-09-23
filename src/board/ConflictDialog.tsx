@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { BoardDoc } from '@/domain/board';
+import { MAX_TITLE, capText, type BoardDoc } from '@/domain/board';
 import { api } from '@/lib/api';
 import { nowIso } from '@/lib/format';
 import { useBoardStore } from '@/state/boardStore';
@@ -8,6 +8,8 @@ import { clearWal } from '@/state/wal';
 import { navigateToBoard } from '@/routes';
 import Button from '@/components/Button';
 import Dialog from '@/components/Dialog';
+
+const COPY_SUFFIX = ' (copy)';
 
 /**
  * The phase-1 conflict path (spec 6.4). The store already tries a node-level
@@ -41,8 +43,10 @@ export default function ConflictDialog(): JSX.Element | null {
 
     setBusy('copy');
     try {
+      // The suffix must fit inside the API's cap: a long title plus " (copy)"
+      // was refused, and this dialog is the one way out of a conflict.
       const created = await api.createBoard({
-        title: `${doc.title} (copy)`,
+        title: `${capText(doc.title, MAX_TITLE - COPY_SUFFIX.length)}${COPY_SUFFIX}`,
         parentBoardId: doc.parentBoardId,
       });
       // Keep this board's content, take the new board's identity and ACL.
