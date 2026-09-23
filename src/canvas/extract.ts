@@ -1,4 +1,4 @@
-import type { BoardDoc, BoardNode, Edge, Id, MediaRef } from '@/domain/board';
+import { capText, type BoardDoc, type BoardNode, type Edge, type Id, type MediaRef } from '@/domain/board';
 import { nowIso } from '@/lib/format';
 import type { BoardState } from '@/state/boardStore';
 import { makeBoardLink } from '@/state/factories';
@@ -9,6 +9,7 @@ const CHILD_MARGIN = 80;
 
 export interface ExtractApi {
   createBoard(input: { title: string; parentBoardId?: Id | null }): Promise<{ doc: BoardDoc; etag: string }>;
+  getBoard(id: Id): Promise<{ doc: BoardDoc; etag: string }>;
   putBoard(
     id: Id,
     doc: BoardDoc,
@@ -123,7 +124,8 @@ export async function extractToBoard(
     deps.onWarning?.('Could not take a snapshot before extracting — continuing anyway.');
   }
 
-  const boardTitle = (title ?? defaultExtractTitle(doc, plan.moved)).slice(0, 120);
+  // Cut with `capText`, never mid-emoji: half a surrogate pair is a glyph no font draws.
+  const boardTitle = capText(title ?? defaultExtractTitle(doc, plan.moved), 120);
   const created = await deps.api.createBoard({ title: boardTitle, parentBoardId: parentId });
 
   // Re-read: saving, snapshotting and creating the child all went to the
@@ -205,5 +207,55 @@ export async function extractToBoard(
 
   await deps.getState().save();
 
+  const stranded = await reparentMovedBoards(deps.api, finalPlan.moved, parentId, created.doc.id);
+  if (stranded > 0) {
+    deps.onWarning?.(
+      stranded === 1
+        ? `One nested board changed elsewhere, so the board list still shows it under “${current.title}”.`
+        : `${stranded} nested boards changed elsewhere, so the board list still shows them under “${current.title}”.`,
+    );
+  }
+  // The new board, and anything that moved under it, belong in the tree now
+  // rather than after the next poll.
+  await deps.getState().loadIndex();
+
   return { boardId: created.doc.id, title: boardTitle, nodeCount: finalPlan.moved.length };
+}
+
+/**
+ * Nest the boards behind any moved tiles under the new board.
+ *
+ * A tile that moved is reached through the new board now, and nesting is read
+ * from `parentBoardId` everywhere else — the tree, the breadcrumb, and the
+ * subtree a delete takes with it. Left alone, the tree kept listing those
+ * boards under the old parent, and deleting the new board took their only
+ * doorway while leaving the boards themselves behind.
+ *
+ * Only a board nested on the board being extracted from moves; a tile to one
+ * nested anywhere else is a shortcut and says nothing about where it lives.
+ * Each write is the guarded round trip every other closed-board edit takes, so
+ * a board changed elsewhere in the meantime is left where it is and counted.
+ */
+async function reparentMovedBoards(
+  api: ExtractApi,
+  moved: readonly BoardNode[],
+  fromId: Id,
+  toId: Id,
+): Promise<number> {
+  const targets = new Set<Id>();
+  for (const node of moved) {
+    if (node.kind === 'boardLink' && node.targetBoardId !== toId) targets.add(node.targetBoardId);
+  }
+
+  let stranded = 0;
+  for (const id of targets) {
+    try {
+      const { doc, etag } = await api.getBoard(id);
+      if (doc.parentBoardId !== fromId || doc.deletedAt !== null) continue;
+      await api.putBoard(id, { ...doc, parentBoardId: toId }, etag, []);
+    } catch {
+      stranded += 1;
+    }
+  }
+  return stranded;
 }
