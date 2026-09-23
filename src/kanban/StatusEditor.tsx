@@ -4,12 +4,13 @@ import {
   capText,
   isCardNode,
   MAX_NAME,
+  type CardNode,
   type ColorToken,
   type Id,
   type StatusDef,
 } from '@/domain/board';
 import { isColorToken } from '@/lib/colors';
-import { rankBetween } from '@/lib/ranks';
+import { byRank, rankBetween } from '@/lib/ranks';
 import { makeStatus } from '@/state/factories';
 import { useBoardStore } from '@/state/boardStore';
 import { useUiStore } from '@/state/uiStore';
@@ -108,8 +109,12 @@ export default function StatusEditor(): JSX.Element {
         }, null),
         null,
       );
-      for (const node of d.nodes) {
-        if (!isCardNode(node) || node.statusId !== id) continue;
+      // In the order they stood in their own column, not the document's order:
+      // a card dragged to the top stays above the ones it was dragged past.
+      const moving = d.nodes
+        .filter((node): node is CardNode => isCardNode(node) && node.statusId === id)
+        .sort(byRank);
+      for (const node of moving) {
         node.statusId = null;
         node.rank = rank;
         rank = rankBetween(rank, null);
