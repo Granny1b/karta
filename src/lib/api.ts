@@ -38,6 +38,11 @@ export class ApiError extends Error {
     return this.status === 412;
   }
 
+  /** The sign-in lapsed; nothing will succeed until the page signs in again. */
+  get signedOut(): boolean {
+    return this.status === 401;
+  }
+
   /**
    * Authenticated but not authorised: the account signed in and still lacks the
    * `member` role, or the board's ACL excludes it. The shell shows the
@@ -136,10 +141,20 @@ async function request<T>(
       method,
       headers,
       credentials: 'same-origin',
+      // A lapsed sign-in is answered with a redirect to the sign-in page (the
+      // 401 override in staticwebapp.config.json). Followed, it crossed to the
+      // identity provider, failed CORS, and read as "no connection" — so an
+      // expired session sat on "Offline" for ever and never asked anyone to
+      // sign in. Nothing under /api redirects otherwise.
+      redirect: 'manual',
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
   } catch {
     throw new ApiError(0, `No connection to the server [${method} ${BASE}${path}]`);
+  }
+
+  if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+    throw new ApiError(401, `${statusMessage(401, 'Unauthorized')} [${method} ${BASE}${path}]`);
   }
 
   const body = await readBody(res);

@@ -31,6 +31,13 @@ const VIEWPORT_MS = 5_000; // camera is persisted separately (spec 6.1)
 const POLL_MS = 20_000; // index poll while a board is open (spec 6.4)
 const UNDO_LIMIT = 200; // in memory only (spec 7.1)
 const MAX_MERGE_RETRIES = 3; // then the conflict dialog (spec 6.4)
+/**
+ * How long opening another board waits for the one being left to save. Long
+ * enough for any real round trip; short enough that a connection hanging
+ * without failing cannot hold the navigation. The write-ahead log keeps
+ * whatever did not make it.
+ */
+const LEAVE_FLUSH_MS = 5_000;
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'offline' | 'conflict';
 
@@ -127,11 +134,16 @@ let saveChain: Promise<void> = Promise.resolve();
  */
 let mutationSeq = 0;
 
+/** Bumped by every `loadBoard`, so a navigation overtaken by a newer one stands down. */
+let loadSeq = 0;
+
 /** Boards already warned about size, so the toast fires once per session. */
 const sizeWarned = new Set<Id>();
 let hardStoppedBoard: Id | null = null;
 /** Boards the server has refused as invalid, so that toast fires once too. */
 let rejectedBoard: Id | null = null;
+/** Boards whose save found the sign-in lapsed, so that is said once as well. */
+let signedOutBoard: Id | null = null;
 
 function toast(message: string, kind: ToastKind = 'info'): void {
   useUiStore.getState().toast(message, kind);
@@ -385,6 +397,15 @@ async function poll(boardId: Id): Promise<void> {
     useBoardStore.setState({ index });
     refreshBoardLinks(index);
 
+    // The server just answered, so the connection is back. A save that failed
+    // offline used to wait for the next edit, whatever the status line
+    // promised about saving when the connection returned.
+    const reconnected = useBoardStore.getState();
+    if (reconnected.dirty && reconnected.saveState === 'offline') {
+      void reconnected.save();
+      return;
+    }
+
     const summary = index.boards.find((b) => b.id === boardId);
     if (!summary) return;
 
@@ -447,11 +468,46 @@ async function mergeFromServer(boardId: Id): Promise<boolean> {
  * ------------------------------------------------------------------ */
 
 /**
+ * The orphaned blob paths a save may delete now.
+ *
+ * Deleting a node releases its image, and a save deletes the files (spec 5.5).
+ * But the undo history still holds the document from before the delete, so an
+ * undo put the node and its reference back after the files were gone: an
+ * image broken for good. A path an undo or a redo can still reach — or that
+ * the document itself points at again — is held back until it cannot. The
+ * history is thrown away when the board is left, and that is when the rest go.
+ */
+function orphansToSend(state: BoardState, leaving: boolean): string[] {
+  if (state.pendingOrphans.length === 0) return [];
+
+  const reachable = new Set<string>();
+  const hold = (doc: BoardDoc | null): void => {
+    for (const ref of doc?.media ?? []) {
+      reachable.add(ref.blobPath);
+      reachable.add(ref.thumbPath);
+    }
+  };
+  hold(state.doc);
+  if (!leaving) {
+    for (const entry of state.undoStack) hold(entry.doc);
+    for (const entry of state.redoStack) hold(entry.doc);
+  }
+  return state.pendingOrphans.filter((path) => !reachable.has(path));
+}
+
+/** Queue one save behind any already running (see `save`). */
+function queueSave(force: boolean, leaving: boolean): Promise<void> {
+  const run = saveChain.then(() => runSave(force, leaving));
+  saveChain = run.catch(() => {});
+  return run;
+}
+
+/**
  * One turn of the pipeline. It runs on `saveChain`, so it never overlaps another
  * save, and it re-reads the store on entry: a save queued behind another one and
  * left with nothing to do collapses into a no-op instead of a second write.
  */
-async function runSave(force: boolean): Promise<void> {
+async function runSave(force: boolean, leaving: boolean): Promise<void> {
   // Now that this save is going to run, the timers that asked for it are spent.
   clearAutosaveTimers();
 
@@ -480,7 +536,7 @@ async function runSave(force: boolean): Promise<void> {
           return;
         }
 
-        const orphans = current.pendingOrphans;
+        const orphans = orphansToSend(current, leaving);
         const sentEtag = current.etag;
         const seqAtSend = mutationSeq;
 
@@ -500,6 +556,7 @@ async function runSave(force: boolean): Promise<void> {
           lastSaveAt = Date.now();
           hardStoppedBoard = null;
           rejectedBoard = null;
+          signedOutBoard = null;
           useBoardStore.setState({
             // Keep the live document when it moved on: a camera move or a
             // board-link rollup landed on it and the server's echo predates them.
@@ -533,6 +590,17 @@ async function runSave(force: boolean): Promise<void> {
       useBoardStore.setState({ saveState: 'offline', error: null });
     } else if (err instanceof ApiError && err.conflict) {
       useBoardStore.setState({ saveState: 'conflict', error: 'This board changed somewhere else.' });
+    } else if (err instanceof ApiError && err.signedOut) {
+      // Every save until the page signs in again answers the same, so it is
+      // said once. The write-ahead log holds the work, and the load after
+      // signing in offers it back.
+      const message =
+        'Your sign-in has expired, so changes are not being saved. Reload the page to sign in again — unsaved changes are kept in this browser and offered back.';
+      useBoardStore.setState({ saveState: 'idle', error: message });
+      if (signedOutBoard !== boardId) {
+        signedOutBoard = boardId;
+        toast(message, 'error');
+      }
     } else if (err instanceof ApiError && err.status === 400) {
       // The document itself is the problem, so every autosave after this one
       // repeats it verbatim. Say what is wrong once, and keep saying it in the
@@ -548,6 +616,36 @@ async function runSave(force: boolean): Promise<void> {
       useBoardStore.setState({ saveState: 'idle', error: message });
       toast(message, 'error');
     }
+  }
+}
+
+/**
+ * Write the open board before another replaces it in memory.
+ *
+ * Opening a board disarms the autosave, so without this an edit made in the
+ * last moment before leaving — a tile double-clicked, a row in the sidebar,
+ * the back button — never reached the server. It waited in the write-ahead log
+ * and came back as a "restore unsaved changes?" prompt on the next visit, or
+ * never, if there was no next visit. It is also what lets the editor panel's
+ * pending text land: the panel commits on unmount, which is only worth
+ * anything while its board is still the one in memory.
+ *
+ * Bounded, because a connection that hangs without failing must not hold the
+ * navigation hostage; whatever does not make it stays in the log.
+ */
+async function flushBeforeLeaving(): Promise<void> {
+  let timer: Timer | null = null;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, LEAVE_FLUSH_MS);
+  });
+  try {
+    // Opening the next board discards the undo history, so the images it was
+    // holding back can go with this write — even when that is all it carries.
+    const released = useBoardStore.getState().pendingOrphans.length > 0;
+    // Whatever becomes of the save, the navigation goes on.
+    await Promise.race([queueSave(released, true).catch(() => {}), timeout]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
   }
 }
 
@@ -595,10 +693,21 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
   },
 
   async loadBoard(id) {
+    const ticket = ++loadSeq;
+
+    // A reload of the same board is never flushed: from the conflict dialog it
+    // means "discard mine", and saving first would keep exactly that.
+    const leaving = get();
+    if (leaving.boardId !== null && leaving.boardId !== id && leaving.doc !== null) {
+      await flushBeforeLeaving();
+      if (ticket !== loadSeq) return; // a later navigation has taken over
+    }
+
     clearAutosaveTimers();
     stopPolling();
     hardStoppedBoard = null;
     rejectedBoard = null;
+    signedOutBoard = null;
 
     set({
       boardId: id,
@@ -667,9 +776,7 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
    * poison the queue for the next caller.
    */
   async save(force = false) {
-    const run = saveChain.then(() => runSave(force));
-    saveChain = run.catch(() => {});
-    await run;
+    await queueSave(force, false);
   },
 
   mutate(label, recipe) {
