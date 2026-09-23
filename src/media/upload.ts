@@ -17,6 +17,15 @@ import { queueOrphans } from '@/media/orphans';
 const CACHE_CONTROL = 'public, max-age=31536000, immutable';
 const CONTENT_TYPE = 'image/webp';
 
+/**
+ * The largest original worth decoding. The spec 6.2 limit is on what is
+ * uploaded — the downscaled WebP, usually a few hundred kilobytes — and it used
+ * to be applied to the file on disk instead, so a 5K screenshot saved as PNG
+ * was refused with advice to shrink it, which is exactly what this code does.
+ * This bound only keeps the browser from being handed something absurd.
+ */
+const MAX_SOURCE_BYTES = 64 * 1024 * 1024;
+
 async function putBlob(url: string, body: Blob, what: string): Promise<void> {
   let res: Response;
   try {
@@ -46,10 +55,10 @@ export async function processAndUploadImage(file: Blob, boardId: Id): Promise<Me
   if (file.size === 0) {
     throw new Error('That file is empty.');
   }
-  if (file.size > MAX_MEDIA_BYTES) {
+  if (file.size > MAX_SOURCE_BYTES) {
     throw new Error(
-      `That image is ${formatBytes(file.size)}. The limit is ${formatBytes(MAX_MEDIA_BYTES)} — ` +
-        'shrink it or take a smaller screenshot.',
+      `That image is ${formatBytes(file.size)}, too large to open here. ` +
+        'Shrink it or take a smaller screenshot.',
     );
   }
   if (file.type.length > 0 && !file.type.startsWith('image/')) {
@@ -57,6 +66,12 @@ export async function processAndUploadImage(file: Blob, boardId: Id): Promise<Me
   }
 
   const processed = await processImage(file);
+  if (processed.full.size > MAX_MEDIA_BYTES) {
+    throw new Error(
+      `That image is still ${formatBytes(processed.full.size)} after shrinking. The limit is ` +
+        `${formatBytes(MAX_MEDIA_BYTES)} — try a smaller screenshot.`,
+    );
+  }
   const target = await api.mediaUploadUrl({
     boardId,
     contentType: CONTENT_TYPE,

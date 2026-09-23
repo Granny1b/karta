@@ -99,6 +99,18 @@ function scheduleRefresh(at: number): void {
   }, Math.max(1_000, at - Date.now()));
 }
 
+/**
+ * Try again on a timer, not only when some image next mounts. A refresh that
+ * failed once — the laptop waking before its network, a server hiccup — used
+ * to leave the old signature in use until it expired, and every URL built after
+ * that (a zoom swapping a thumbnail for the full image) was refused until a
+ * node happened to mount.
+ */
+function retryLater(): void {
+  nextAttemptAt = Date.now() + RETRY_MS;
+  scheduleRefresh(nextAttemptAt);
+}
+
 /** Fetch a token if there is none, or if the one held is due for renewal. */
 function ensureToken(): void {
   if (inflight) return;
@@ -115,12 +127,12 @@ function ensureToken(): void {
         scheduleRefresh(parsed.refreshAt);
         emit();
       } else {
-        nextAttemptAt = Date.now() + RETRY_MS;
+        retryLater();
       }
     } catch {
       // Images stay blank until the next attempt; there is nothing the person
       // looking at the board can do about it, so it does not raise a toast.
-      nextAttemptAt = Date.now() + RETRY_MS;
+      retryLater();
     } finally {
       inflight = null;
     }

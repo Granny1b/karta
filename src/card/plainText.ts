@@ -6,6 +6,8 @@
  * remark pipeline in for every visible node would cost more than it renders.
  */
 
+import { capText } from '@/domain/board';
+
 const FENCE = /^[ \t]*(?:```|~~~).*$/gm;
 const IMAGE = /!\[([^\]]*)\]\([^)]*\)/g;
 const LINK = /\[([^\]]*)\]\([^)]*\)/g;
@@ -63,7 +65,8 @@ function truncate(text: string, maxChars: number): string {
   if (limit === 0) return '';
   if (text.length <= limit) return text;
 
-  const head = text.slice(0, limit);
+  // `capText` cuts where `slice` would, but never through an emoji's pair.
+  const head = capText(text, limit);
   const lastSpace = head.lastIndexOf(' ');
   const cut = lastSpace > limit * 0.6 ? head.slice(0, lastSpace) : head;
   return `${cut.trimEnd()}…`;
