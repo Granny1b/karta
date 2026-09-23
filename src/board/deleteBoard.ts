@@ -38,10 +38,10 @@ export interface BoardDeletion {
  * Soft-delete `rootIds` and everything nested under them, then take the
  * doorways down.
  *
- * Deletes are settled together rather than in sequence: one board refusing must
- * not decide the fate of the rest, and the caller is told the count so it can
- * say what actually happened. The index is reloaded before returning, so the
- * tree and the rollups are current by the time anyone looks.
+ * One board refusing must not decide the fate of the rest, so every delete is
+ * attempted and the caller is told the count, to say what actually happened.
+ * The index is reloaded before returning, so the tree and the rollups are
+ * current by the time anyone looks.
  */
 export async function deleteBoardsAndDescendants(rootIds: readonly Id[]): Promise<BoardDeletion> {
   const store = useBoardStore.getState();
@@ -52,9 +52,22 @@ export async function deleteBoardsAndDescendants(rootIds: readonly Id[]): Promis
   const targets = [...new Set<Id>([...rootIds, ...subtree.map((b) => b.id)])];
   if (targets.length === 0) return { deleted: [], failed: 0, doorwaysLeft: 0 };
 
-  const results = await Promise.allSettled(targets.map((id) => api.deleteBoard(id)));
-  const deleted = targets.filter((_, i) => results[i]?.status === 'fulfilled');
-  const gone = new Set(deleted);
+  // One at a time, deepest first. Every delete rewrites the shared index under
+  // its own ETag, and a whole subtree fired at once contended for it hard
+  // enough to lose an entry now and then — a deleted board left looking live,
+  // lifted to the top of the tree. And children before parents means a delete
+  // cut short never strands a live board under a dead one. `targets` is
+  // breadth-first, parents before children, so it is walked backwards.
+  const gone = new Set<Id>();
+  for (const id of [...targets].reverse()) {
+    try {
+      await api.deleteBoard(id);
+      gone.add(id);
+    } catch {
+      // Counted below; the board is still there, and so is its tile.
+    }
+  }
+  const deleted = targets.filter((id) => gone.has(id));
 
   // Where a doorway to any of them can be: on the parent board, which is where
   // creating a child board puts one, and on the board being looked at, which

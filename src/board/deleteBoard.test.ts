@@ -81,6 +81,30 @@ describe('deleteBoardsAndDescendants', () => {
     expect(result.failed).toBe(0);
   });
 
+  it('deletes one board at a time, the deepest first', async () => {
+    // Every delete rewrites the shared index under its own ETag; a subtree
+    // fired all at once contended for it and could lose an entry, leaving a
+    // deleted board looking live. Children before parents also means a delete
+    // cut short never strands a live board under a dead one.
+    let inFlight = 0;
+    let most = 0;
+    const order: string[] = [];
+    deleteBoard.mockImplementation(async (id: string) => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await Promise.resolve();
+      order.push(id);
+      inFlight -= 1;
+    });
+
+    await deleteBoardsAndDescendants(['root']);
+
+    expect(most).toBe(1);
+    expect(order.indexOf('netcode')).toBeLessThan(order.indexOf('systems'));
+    expect(order.indexOf('systems')).toBeLessThan(order.indexOf('root'));
+    expect(order.indexOf('world')).toBeLessThan(order.indexOf('root'));
+  });
+
   it('leaves the boards beside it alone', async () => {
     await deleteBoardsAndDescendants(['systems']);
     expect(deleteBoard.mock.calls.map((c) => c[0])).not.toContain('world');
